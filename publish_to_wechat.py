@@ -198,14 +198,13 @@ def render_mermaid_with_playwright(mermaid_code):
         #mermaid-container {{
             background: white;
         }}
-        /* 强制设置大字体，确保在手机端清晰 */
+        /* 优化字体大小，确保清晰度 */
         .mermaid text {{
-            font-size: 32px !important;
-            font-weight: bold !important;
+            font-size: 16px !important;
             font-family: -apple-system, BlinkMacSystemFont, sans-serif !important;
         }}
         .mermaid .edgeLabel {{
-            font-size: 20px !important;
+            font-size: 14px !important;
             background-color: white !important;
             padding: 4px !important;
         }}
@@ -227,7 +226,7 @@ def render_mermaid_with_playwright(mermaid_code):
             startOnLoad: true,
             theme: 'default',
             themeVariables: {{
-                fontSize: '20px',
+                fontSize: '16px',
                 fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
                 primaryTextColor: '#000',
                 lineColor: '#333',
@@ -239,30 +238,23 @@ def render_mermaid_with_playwright(mermaid_code):
                 htmlLabels: true,
                 curve: 'basis',
                 padding: 40,
-                nodeSpacing: 100,
-                rankSpacing: 100
+                nodeSpacing: 50,
+                rankSpacing: 50
             }},
             sequence: {{
                 showSequenceNumbers: true,
                 diagramMarginX: 40,
                 diagramMarginY: 40,
-                actorMargin: 120,
-                width: 200,
-                height: 80,
+                actorMargin: 50,
+                width: 150,
+                height: 65,
                 boxMargin: 20,
-                messageMargin: 60,
-                fontSize: 20,
-                messageFontSize: 18,
-                noteFontSize: 18,
-                actorFontSize: 20,
+                messageMargin: 35,
+                fontSize: 16,
+                messageFontSize: 14,
+                noteFontSize: 14,
+                actorFontSize: 16,
                 messageFontWeight: 400,
-                wrap: true
-            }}
-        }});
-                messageFontSize: 28,
-                noteFontSize: 26,
-                actorFontSize: 32,
-                messageFontWeight: 700,
                 wrap: true
             }}
         }});
