@@ -502,10 +502,13 @@ def process_content_workflow(content, token):
         body = content[match.end():]
 
     # [新增] 列表空行清理：移除列表项之间的多余空行，防止微信编辑器渲染异常
-    # 1. 紧凑化无序列表
-    body = re.sub(r'(\n\s*[-*+]\s+.*)\n\n+(?=\s*[-*+]\s+)', r'\1\n', body)
-    # 2. 紧凑化有序列表
-    body = re.sub(r'(\n\s*\d+\.\s+.*)\n\n+(?=\s*\d+\.\s+)', r'\1\n', body)
+    # 更加激进的空行清理策略：只要是列表项附近的空行，全部干掉
+    # 1. 清理无序列表项之间的空行
+    body = re.sub(r'([-*+]\s+.*)\n\s*\n+(?=\s*[-*+]\s+)', r'\1\n', body)
+    # 2. 清理有序列表项之间的空行
+    body = re.sub(r'(\d+\.\s+.*)\n\s*\n+(?=\s*\d+\.\s+)', r'\1\n', body)
+    # 3. 清理列表结束后的多余空行 (可选，防止列表后间距过大)
+    body = re.sub(r'([-*+]|\d+\.)\s+.*\n(\s*\n)+', r'\g<0>\n', body)
 
     # 2. Mermaid 处理 (转为图片链接)
     body = process_mermaid(body)
@@ -609,16 +612,13 @@ def md_to_html(md_content):
     # 我们需要给最外层容器加卡片样式，并给 pre 加样式
 
     # 1. 给 Pygments 容器 (.highlight) 增加卡片样式
-    # 暖米色背景 + 暖灰边框 + 圆角 + 内边距
-    # 注意：这里移除了 overflow-x: auto，交给了内部的 pre 处理，避免双重滚动条
+    # 恢复为之前的暖米色背景 + 暖灰边框 + 圆角 + 内边距
     highlight_container_style = 'background: #f7f1e3; border: 1px solid #e6dec5; border-radius: 5px; padding: 10px 15px; margin: 15px 0;'
     final_html = final_html.replace('<div class="highlight">', f'<div class="highlight" style="{highlight_container_style}">')
 
     # 2. 给 pre 标签加样式 (消除默认 margin，字体设置)
-    # Pygments 的 pre 通常包含 span 元素
-    # 关键修改：强制 white-space: pre 以保留格式化 (换行和缩进)
-    # 关键修改：overflow-x: auto 允许横向滚动
-    pre_style = 'margin: 0; line-height: 1.5; font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace; font-size: 13px; color: #333; white-space: pre; overflow-x: auto; border: none; padding: 0;'
+    # 恢复背景色为透明，因为外层容器已经有了背景色
+    pre_style = 'margin: 0; line-height: 1.5; font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace; font-size: 13px; color: #333; white-space: pre; overflow-x: auto; border: none; padding: 0; background: transparent;'
     final_html = final_html.replace('<pre>', f'<pre style="{pre_style}">')
 
     # 3. 清理代码块内部 span 的背景色
