@@ -209,7 +209,7 @@ def render_mermaid_with_playwright(mermaid_code):
             padding: 4px !important;
         }}
         .mermaid .sequenceNumber {{
-            fill: white !important;
+            fill: #333 !important;
             stroke: #333 !important;
             stroke-width: 2px !important;
         }}
