@@ -578,7 +578,8 @@ def md_to_html(md_content):
     final_html = final_html.replace('<h3>', f'<h3 {h3_style}>')
 
     # H4: 增加 H4 样式 (稍小一些，保持风格)
-    h4_style = 'style="font-size: 16px; font-weight: bold; margin: 20px 0 10px; padding: 4px 8px; border-left: 4px solid #db4c3f; background: #fcecec; line-height: 1.5;"'
+    # 去除背景色，只保留左侧线条
+    h4_style = 'style="font-size: 16px; font-weight: bold; margin: 20px 0 10px; padding: 4px 8px; border-left: 4px solid #db4c3f; line-height: 1.5;"'
     final_html = final_html.replace('<h4>', f'<h4 {h4_style}>')
 
     # Strong: 铁锈红字体
@@ -593,8 +594,8 @@ def md_to_html(md_content):
     # List Items: 序号/圆点改为红色，正文保持黑色
     # 策略：设置 li 颜色为红色，然后将 li 的内容包裹在 span 中重置为黑色
     final_html = final_html.replace('<li>', '<li style="color: #db4c3f; margin-bottom: 4px;">')
-    # 正则替换 li 内容，包裹 span 黑色
-    final_html = re.sub(r'<li>(?!<p>)(.*?)</li>', r'<li><span style="color: #333;">\1</span></li>', final_html, flags=re.DOTALL)
+    # 正则替换 li 内容，包裹 span 黑色 + block display 以确保换行缩进正常
+    final_html = re.sub(r'<li>(?!<p>)(.*?)</li>', r'<li><span style="color: #333; display: block;">\1</span></li>', final_html, flags=re.DOTALL)
 
     # Code Blocks (Pre + Code): 优化代码块样式
     # 不再统一替换 pre/code，而是依赖 Pygments 生成的高亮 HTML
@@ -621,13 +622,15 @@ def md_to_html(md_content):
 
     # Inline Code: 优化行内代码样式
     # 策略：查找所有 code 标签，排除掉已经带有 style 属性的 (即上面处理过的块级代码)
-    inline_code_style = 'background: #fff0f0; color: #db4c3f; padding: 3px 5px; border-radius: 3px; font-family: Consolas, Monaco, monospace; font-size: 14px; margin: 0 2px;'
+    # 去除粉红色背景，只保留铁锈红文字和淡淡的灰色背景，更清爽
+    inline_code_style = 'background: #f0f0f0; color: #db4c3f; padding: 2px 4px; border-radius: 3px; font-family: Consolas, Monaco, monospace; font-size: 14px; margin: 0 2px;'
 
     def replace_inline_code(match):
         attrs = match.group(1)
         # 如果已经有 style 属性，说明是代码块内部的 code，跳过
         if 'style=' in attrs:
             return match.group(0)
+        # 排除掉 pre 标签内部的 code (虽然上面的逻辑已经尽量规避，但为了双重保险)
         return f'<code {attrs} style="{inline_code_style}">'
 
     final_html = re.sub(r'<code([^>]*)>', replace_inline_code, final_html)
