@@ -490,6 +490,32 @@ def process_footnotes(content):
 
     return content
 
+def preprocess_json_comments(content):
+    """
+    处理 JSON 代码块中的注释
+    JSON 标准不支持 // 注释，但原始文档中可能包含，这会导致 Pygments 无法正确高亮
+    解决方案：移除 JSON 代码块中的行尾注释
+    """
+    def process_json_block(match):
+        lang = match.group(1)
+        code = match.group(2)
+        if lang.lower() == 'json':
+            # 移除行尾注释 // ...（保留字符串内的 //）
+            # 策略：只处理不在引号内的 //
+            lines = code.split('\n')
+            cleaned_lines = []
+            for line in lines:
+                # 简单策略：查找 // 并检查它前面是否在字符串内
+                # 更安全的做法：只移除行尾的 // 注释
+                # 匹配模式：非字符串内的 // 到行尾
+                cleaned = re.sub(r'\s*//[^"]*$', '', line)
+                cleaned_lines.append(cleaned)
+            code = '\n'.join(cleaned_lines)
+        return f'```{lang}\n{code}```'
+
+    return re.sub(r'```(\w+)\n([\s\S]*?)```', process_json_block, content)
+
+
 def process_content_workflow(content, token):
     """完整的 Markdown 处理工作流"""
 
@@ -501,14 +527,26 @@ def process_content_workflow(content, token):
         frontmatter = yaml.safe_load(match.group(1))
         body = content[match.end():]
 
-    # [新增] 列表空行清理：移除列表项之间的多余空行，防止微信编辑器渲染异常
-    # 更加激进的空行清理策略：只要是列表项附近的空行，全部干掉
-    # 1. 清理无序列表项之间的空行
-    body = re.sub(r'([-*+]\s+.*)\n\s*\n+(?=\s*[-*+]\s+)', r'\1\n', body)
-    # 2. 清理有序列表项之间的空行
-    body = re.sub(r'(\d+\.\s+.*)\n\s*\n+(?=\s*\d+\.\s+)', r'\1\n', body)
-    # 3. 清理列表结束后的多余空行 (可选，防止列表后间距过大)
-    body = re.sub(r'([-*+]|\d+\.)\s+.*\n(\s*\n)+', r'\g<0>\n', body)
+    # [增强] 列表空行清理：移除列表项之间的多余空行，防止微信编辑器渲染异常
+    # 策略：双层清理 - Markdown 层 + HTML 层（HTML 层在 md_to_html 函数中处理）
+    #
+    # 更激进的列表空行清理 - 处理列表项之间的所有空白行
+    # 包括处理带缩进的空行、多行列表项等复杂情况
+
+    # 1. 清理有序列表项之间的空行（支持多行列表项内容）
+    # 匹配：数字.内容 + 空行 + 下一个数字.
+    body = re.sub(r'(\d+\.\s+[^\n]+)\n+(?=\s*\d+\.\s+)', r'\1\n', body)
+
+    # 2. 清理无序列表项之间的空行
+    body = re.sub(r'([-*+]\s+[^\n]+)\n+(?=\s*[-*+]\s+)', r'\1\n', body)
+
+    # 3. 处理多行列表项（列表项内有换行但不是新列表项）
+    # 保留列表项内部的合理换行，但移除过多的空行
+    body = re.sub(r'\n{3,}', '\n\n', body)  # 将连续3+空行压缩为2行
+
+    # [新增] JSON 注释预处理：移除 JSON 代码块中的 // 注释
+    # 这样 Pygments 才能正确进行语法高亮
+    body = preprocess_json_comments(body)
 
     # 2. Mermaid 处理 (转为图片链接)
     body = process_mermaid(body)
@@ -610,15 +648,41 @@ def md_to_html(md_content):
     # 1. 清理代码块内部 span 的背景色 (在添加容器样式之前执行，防止误删容器背景)
     # Pygments 生成的 span 可能会自带 background-color，导致每行代码有独立背景，这很难看
     # 我们需要移除 span 标签中的 background 样式，统一使用外层容器的背景
-    def clean_span_background(match):
-        block = match.group(0)
-        # 移除 background-color: ...; 或 background: ...;
-        block = re.sub(r'background(-color)?:\s*[^;"]+;?', '', block)
-        return block
+    #
+    # [改进] 使用更健壮的清理逻辑，处理嵌套结构和各种格式
+    def clean_code_block_backgrounds(html_content):
+        """清理代码块内所有 span 的背景色 - 改进版"""
 
-    # 仅针对 <div class="highlight"> 内部的内容进行清理
-    # 使用正则非贪婪匹配捕获代码块
-    final_html = re.sub(r'(<div class="highlight"[^>]*>.*?</div>)', clean_span_background, final_html, flags=re.DOTALL)
+        def process_highlight_block(match):
+            block = match.group(0)
+            # 清理所有 span 中的 background 相关样式
+            # 使用更精确的正则，处理各种格式：
+            # - background: #xxx;
+            # - background-color: #xxx;
+            # - background-color: rgb(...);
+            # - background:#xxx (无空格)
+            block = re.sub(
+                r'(<span[^>]*style="[^"]*?)background(-color)?:\s*[^;"]+;?\s*',
+                r'\1',
+                block
+            )
+            return block
+
+        # 使用 [\s\S]*? 替代 .*? 以跨越换行
+        # 注意：需要正确匹配 highlight div 的结束标签
+        # 策略：先找到所有 <div class="highlight"> 开始标签，然后找到对应的 </div>
+        result = re.sub(
+            r'(<div class="highlight"[^>]*>)([\s\S]*?)(</div>)',
+            lambda m: m.group(1) + re.sub(
+                r'(<span[^>]*style="[^"]*?)background(-color)?:\s*[^;"]+;?\s*',
+                r'\1',
+                m.group(2)
+            ) + m.group(3),
+            html_content
+        )
+        return result
+
+    final_html = clean_code_block_backgrounds(final_html)
 
     # 2. 给 Pygments 容器 (.highlight) 增加卡片样式
     # 使用浅灰色背景 #f6f8fa
@@ -664,6 +728,27 @@ def md_to_html(md_content):
     # HR: 渐变分割线 (中间深两边浅)
     # 使用 linear-gradient 实现渐变
     final_html = re.sub(r'<hr\s*/?>', '<hr style="border: 0; height: 1px; background-image: linear-gradient(to right, rgba(219, 76, 63, 0), rgba(219, 76, 63, 1), rgba(219, 76, 63, 0)); margin: 40px 0;">', final_html)
+
+    # [关键] HTML 层列表项简化 - 这是微信编辑器空行问题的根源
+    # 当 Markdown 列表项之间有空行时，解析器会将内容包裹在 <p> 中
+    # 例如: <li><p>内容</p></li> 需要简化为 <li>内容</li>
+    def simplify_list_items(html_content):
+        """简化列表项结构，移除不必要的 p 标签包裹"""
+        # 1. 简化 li 内单个 p 的情况：<li><p>内容</p></li> → <li>内容</li>
+        # 但保留 li 内部的样式
+        html_content = re.sub(
+            r'<li([^>]*)>\s*<p[^>]*>(.*?)</p>\s*</li>',
+            r'<li\1>\2</li>',
+            html_content,
+            flags=re.DOTALL
+        )
+        # 2. 移除完全空的 li
+        html_content = re.sub(r'<li[^>]*>\s*</li>', '', html_content)
+        # 3. 移除 li 内只有空 p 的情况
+        html_content = re.sub(r'<li[^>]*>\s*<p[^>]*>\s*</p>\s*</li>', '', html_content)
+        return html_content
+
+    final_html = simplify_list_items(final_html)
 
     return final_html
 
