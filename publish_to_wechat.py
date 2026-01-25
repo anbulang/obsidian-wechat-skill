@@ -595,33 +595,19 @@ def md_to_html(md_content):
     final_html = final_html.replace('<strong>', '<strong style="color: #db4c3f; font-weight: bold;">')
 
     # List Containers: 增加缩进，防止序号/列表点被吞
-    # 恢复缩进为 25px
-    list_style = 'style="margin-bottom: 16px; padding-left: 25px;"'
+    # 恢复缩进为 25px, 减少底部间距
+    list_style = 'style="margin-bottom: 10px; padding-left: 25px;"'
     final_html = final_html.replace('<ul>', f'<ul {list_style}>')
     final_html = final_html.replace('<ol>', f'<ol {list_style}>')
 
-    # List Items: 序号/圆点改为红色，正文保持黑色
-    # 策略：设置 li 颜色为红色，然后将 li 的内容包裹在 span 中重置为黑色
-    final_html = final_html.replace('<li>', '<li style="color: #db4c3f; margin-bottom: 4px;">')
-    # 正则替换 li 内容，包裹 span 黑色 + block display 以确保换行缩进正常
-    final_html = re.sub(r'<li>(?!<p>)(.*?)</li>', r'<li><span style="color: #333; display: block;">\1</span></li>', final_html, flags=re.DOTALL)
+    # List Items: 保持默认黑色，调整间距
+    final_html = final_html.replace('<li>', '<li style="margin-bottom: 2px;">')
 
     # Code Blocks (Pre + Code): 优化代码块样式
     # 不再统一替换 pre/code，而是依赖 Pygments 生成的高亮 HTML
     # 但 Pygments 生成的只是 <div class="highlight"><pre>...</pre></div>
-    # 我们需要给最外层容器加卡片样式，并给 pre 加样式
 
-    # 1. 给 Pygments 容器 (.highlight) 增加卡片样式
-    # 恢复为之前的暖米色背景 + 暖灰边框 + 圆角 + 内边距
-    highlight_container_style = 'background: #f7f1e3; border: 1px solid #e6dec5; border-radius: 5px; padding: 10px 15px; margin: 15px 0;'
-    final_html = final_html.replace('<div class="highlight">', f'<div class="highlight" style="{highlight_container_style}">')
-
-    # 2. 给 pre 标签加样式 (消除默认 margin，字体设置)
-    # 恢复背景色为透明，因为外层容器已经有了背景色
-    pre_style = 'margin: 0; line-height: 1.5; font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace; font-size: 13px; color: #333; white-space: pre; overflow-x: auto; border: none; padding: 0; background: transparent;'
-    final_html = final_html.replace('<pre>', f'<pre style="{pre_style}">')
-
-    # 3. 清理代码块内部 span 的背景色
+    # 1. 清理代码块内部 span 的背景色 (在添加容器样式之前执行，防止误删容器背景)
     # Pygments 生成的 span 可能会自带 background-color，导致每行代码有独立背景，这很难看
     # 我们需要移除 span 标签中的 background 样式，统一使用外层容器的背景
     def clean_span_background(match):
@@ -633,6 +619,16 @@ def md_to_html(md_content):
     # 仅针对 <div class="highlight"> 内部的内容进行清理
     # 使用正则非贪婪匹配捕获代码块
     final_html = re.sub(r'(<div class="highlight"[^>]*>.*?</div>)', clean_span_background, final_html, flags=re.DOTALL)
+
+    # 2. 给 Pygments 容器 (.highlight) 增加卡片样式
+    # 使用浅灰色背景 #f6f8fa
+    highlight_container_style = 'background: #f6f8fa; border: 1px solid #e1e4e8; border-radius: 6px; padding: 16px; margin: 16px 0;'
+    final_html = final_html.replace('<div class="highlight">', f'<div class="highlight" style="{highlight_container_style}">')
+
+    # 3. 给 pre 标签加样式 (消除默认 margin，字体设置)
+    # 恢复背景色为透明，因为外层容器已经有了背景色
+    pre_style = 'margin: 0; line-height: 1.5; font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace; font-size: 13px; color: #333; white-space: pre; overflow-x: auto; border: none; padding: 0; background: transparent;'
+    final_html = final_html.replace('<pre>', f'<pre style="{pre_style}">')
 
     # 4. 兜底处理：如果有未被 Pygments 处理的普通代码块 (比如缩进式代码块)
     # 它们通常是 <pre><code>...</code></pre> 结构
