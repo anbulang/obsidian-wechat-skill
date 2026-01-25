@@ -766,8 +766,21 @@ def md_to_html(md_content):
 
     # 3. 给 pre 标签加样式 (消除默认 margin，字体设置)
     # 恢复背景色为透明，因为外层容器已经有了背景色
+    # [修复] 使用正则替换所有 pre 标签（包括已带 style 的）
     pre_style = 'margin: 0; line-height: 1.5; font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace; font-size: 13px; color: #333; white-space: pre; overflow-x: auto; border: none; padding: 0; background: transparent;'
-    final_html = final_html.replace('<pre>', f'<pre style="{pre_style}">')
+
+    def fix_pre_style(match):
+        """替换 pre 标签的 style，确保 white-space: pre 生效"""
+        existing_attrs = match.group(1) or ''
+        # 如果已有 style，替换它；否则添加新 style
+        if 'style=' in existing_attrs:
+            # 替换现有 style
+            new_attrs = re.sub(r'style="[^"]*"', f'style="{pre_style}"', existing_attrs)
+        else:
+            new_attrs = existing_attrs + f' style="{pre_style}"'
+        return f'<pre{new_attrs}>'
+
+    final_html = re.sub(r'<pre([^>]*)>', fix_pre_style, final_html)
 
     # 4. 兜底处理：如果有未被 Pygments 处理的普通代码块 (比如缩进式代码块)
     # 它们通常是 <pre><code>...</code></pre> 结构
@@ -808,19 +821,40 @@ def md_to_html(md_content):
     # 当 Markdown 列表项之间有空行时，解析器会将内容包裹在 <p> 中
     # 例如: <li><p>内容</p></li> 需要简化为 <li>内容</li>
     def simplify_list_items(html_content):
-        """简化列表项结构，移除不必要的 p 标签包裹"""
-        # 1. 简化 li 内单个 p 的情况：<li><p>内容</p></li> → <li>内容</li>
-        # 但保留 li 内部的样式
+        """简化列表项结构，移除不必要的 p 标签包裹 - 改进版"""
+
+        def process_li(match):
+            """处理单个 li 标签"""
+            li_attrs = match.group(1) or ''
+            li_content = match.group(2)
+
+            # 移除 li 内所有 p 标签的包裹，但保留内容
+            # <p style="...">内容</p> → 内容
+            cleaned = re.sub(r'<p[^>]*>([\s\S]*?)</p>', r'\1', li_content)
+
+            # 移除多余的空白和换行
+            cleaned = re.sub(r'\s*\n\s*', ' ', cleaned)
+            cleaned = cleaned.strip()
+
+            # 如果清理后内容为空，返回空字符串（稍后移除）
+            if not cleaned:
+                return ''
+
+            return f'<li{li_attrs}>{cleaned}</li>'
+
+        # 处理所有 li 标签
         html_content = re.sub(
-            r'<li([^>]*)>\s*<p[^>]*>(.*?)</p>\s*</li>',
-            r'<li\1>\2</li>',
-            html_content,
-            flags=re.DOTALL
+            r'<li([^>]*)>([\s\S]*?)</li>',
+            process_li,
+            html_content
         )
-        # 2. 移除完全空的 li
-        html_content = re.sub(r'<li[^>]*>\s*</li>', '', html_content)
-        # 3. 移除 li 内只有空 p 的情况
-        html_content = re.sub(r'<li[^>]*>\s*<p[^>]*>\s*</p>\s*</li>', '', html_content)
+
+        # 移除空的 li 标签（process_li 返回的空字符串）
+        html_content = re.sub(r'\s*<li[^>]*>\s*</li>\s*', '', html_content)
+
+        # 移除连续的空行
+        html_content = re.sub(r'\n{3,}', '\n\n', html_content)
+
         return html_content
 
     final_html = simplify_list_items(final_html)
