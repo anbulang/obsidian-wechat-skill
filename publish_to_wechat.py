@@ -570,7 +570,8 @@ def md_to_html(md_content):
     final_html = final_html.replace('<strong>', '<strong style="color: #db4c3f; font-weight: bold;">')
 
     # List Containers: 增加缩进，防止序号/列表点被吞
-    list_style = 'style="margin-bottom: 16px; padding-left: 25px;"'
+    # 调整缩进为 40px (约 2.5em)，确保足够空间
+    list_style = 'style="margin-bottom: 16px; padding-left: 40px;"'
     final_html = final_html.replace('<ul>', f'<ul {list_style}>')
     final_html = final_html.replace('<ol>', f'<ol {list_style}>')
 
@@ -581,16 +582,29 @@ def md_to_html(md_content):
     final_html = re.sub(r'<li>(?!<p>)(.*?)</li>', r'<li><span style="color: #333;">\1</span></li>', final_html, flags=re.DOTALL)
 
     # Code Blocks (Pre + Code): 优化代码块样式
-    # 先处理块级代码 <pre><code>，赋予“卡片式”样式
+    # 使用正则替换，以支持带有 class="language-xxx" 的代码块
     pre_style = 'style="background: #f7f1e3; border: 1px solid #e6dec5; border-radius: 5px; padding: 15px; overflow-x: auto; margin: 15px 0; color: #333; font-family: Consolas, Monaco, monospace; font-size: 13px; line-height: 1.5;"'
-    code_block_inner_style = 'style="background: transparent; color: #333; padding: 0; border: none; font-family: inherit;"'
-    # 注意：Markdown 转换后通常是 <pre><code>...</code></pre>
-    final_html = final_html.replace('<pre><code>', f'<pre {pre_style}><code {code_block_inner_style}>')
+    code_block_inner_style = 'style="background: transparent; color: #333; padding: 0; border: none; font-family: inherit; white-space: pre;"'
+
+    # 匹配 <pre><code ...> 或 <pre><code>，捕获 code 标签的属性
+    final_html = re.sub(
+        r'<pre><code([^>]*)>',
+        f'<pre {pre_style}><code\\1 {code_block_inner_style}>',
+        final_html
+    )
 
     # Inline Code: 优化行内代码样式
-    # 替换剩余的未带样式的 <code> 标签 (即行内代码)
-    inline_code_style = 'style="background: #fff0f0; color: #db4c3f; padding: 3px 5px; border-radius: 3px; font-family: Consolas, Monaco, monospace; font-size: 14px; margin: 0 2px;"'
-    final_html = final_html.replace('<code>', f'<code {inline_code_style}>')
+    # 策略：查找所有 code 标签，排除掉已经带有 style 属性的 (即上面处理过的块级代码)
+    inline_code_style = 'background: #fff0f0; color: #db4c3f; padding: 3px 5px; border-radius: 3px; font-family: Consolas, Monaco, monospace; font-size: 14px; margin: 0 2px;'
+
+    def replace_inline_code(match):
+        attrs = match.group(1)
+        # 如果已经有 style 属性，说明是代码块内部的 code，跳过
+        if 'style=' in attrs:
+            return match.group(0)
+        return f'<code {attrs} style="{inline_code_style}">'
+
+    final_html = re.sub(r'<code([^>]*)>', replace_inline_code, final_html)
     # 如果 li 内部有 p，则给 p 加样式
     final_html = final_html.replace('<p>', '<p style="margin-bottom: 15px; line-height: 1.6; color: #333; text-align: justify;">')
 
