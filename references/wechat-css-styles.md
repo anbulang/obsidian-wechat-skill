@@ -489,15 +489,15 @@
 ### 表格内联样式
 
 ```html
-<table style="width: 100%; margin: 20px 0; border-collapse: collapse; font-size: 14px;">
+<table style="width: 100%; margin: 16px 0; border-collapse: collapse; font-size: 14px;">
   <thead>
     <tr>
-      <th style="background: #f5f7fa; font-weight: bold; text-align: left; padding: 12px 16px; border: 1px solid #e4e7ed;">表头</th>
+      <th style="background: #f5f7fa; font-weight: 600; text-align: left; padding: 6px 13px; border: 1px solid #dfe2e5; color: #db4c3f;">表头</th>
     </tr>
   </thead>
   <tbody>
     <tr>
-      <td style="padding: 12px 16px; border: 1px solid #e4e7ed;">内容</td>
+      <td style="padding: 6px 13px; border: 1px solid #dfe2e5;">内容</td>
     </tr>
   </tbody>
 </table>
