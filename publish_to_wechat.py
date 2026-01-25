@@ -584,6 +584,46 @@ def remove_orphan_language_labels(content):
     return content
 
 
+def ensure_list_spacing(content):
+    """
+    确保列表前有空行，否则 Markdown 解析器不会将其识别为列表
+
+    问题：Obsidian 中常见这样的写法：
+        这是一段文字。
+        - 列表项1
+        - 列表项2
+
+    但标准 Markdown 要求列表前必须有空行：
+        这是一段文字。
+
+        - 列表项1
+        - 列表项2
+
+    解决方案：检测并在段落和列表之间插入空行
+    """
+    lines = content.split('\n')
+    result = []
+
+    for i, line in enumerate(lines):
+        # 检测当前行是否是列表项开始
+        is_list_start = re.match(r'^(\s*)([-*+]|\d+\.)\s+', line)
+
+        if is_list_start and i > 0:
+            prev_line = lines[i - 1].strip()
+            # 如果前一行不是空行、不是列表项、不是标题、不是代码块标记
+            if (prev_line and
+                not re.match(r'^([-*+]|\d+\.)\s+', prev_line) and
+                not prev_line.startswith('#') and
+                not prev_line.startswith('```') and
+                not prev_line.startswith('>')):
+                # 在列表项前插入空行
+                result.append('')
+
+        result.append(line)
+
+    return '\n'.join(result)
+
+
 def process_content_workflow(content, token):
     """完整的 Markdown 处理工作流"""
 
@@ -611,6 +651,10 @@ def process_content_workflow(content, token):
     # 3. 处理多行列表项（列表项内有换行但不是新列表项）
     # 保留列表项内部的合理换行，但移除过多的空行
     body = re.sub(r'\n{3,}', '\n\n', body)  # 将连续3+空行压缩为2行
+
+    # [新增] 确保列表前有空行，否则 Markdown 解析器不会识别为列表
+    # 这是最常见的问题：Obsidian 允许段落后直接跟列表，但标准 MD 不行
+    body = ensure_list_spacing(body)
 
     # [新增] 修复列表项内代码块的格式问题
     # Obsidian 中列表项内的代码块缩进不足，导致 Markdown 解析器无法识别
