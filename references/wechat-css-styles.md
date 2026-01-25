@@ -231,31 +231,31 @@
 }
 
 #nice table th {
-  background: #f5f7fa;
+  background: #fff5f5;
   font-weight: 600;
   text-align: left;
   padding: 6px 13px;
-  border: 1px solid #dfe2e5;
+  border: 1px solid #fabec9;
   color: #db4c3f;
 }
 
 #nice table td {
   padding: 6px 13px;
-  border: 1px solid #dfe2e5;
+  border: 1px solid #fabec9;
 }
 
 #nice table tr:nth-child(even) {
-  background: #fafafa;
+  background: #fff5f5;
 }
 
 #nice table tr:hover {
-  background: #f5f7fa;
+  background: #fff0f0;
 }
 
 /* ========== 分隔线 ========== */
 #nice hr {
   border: none;
-  border-top: 1px solid #e4e7ed;
+  border-top: 1px dashed #db4c3f;
   margin: 30px 0;
 }
 
@@ -491,12 +491,12 @@
 <table style="width: 100%; margin: 16px 0; border-collapse: collapse; font-size: 14px;">
   <thead>
     <tr>
-      <th style="background: #f5f7fa; font-weight: 600; text-align: left; padding: 6px 13px; border: 1px solid #dfe2e5; color: #db4c3f;">表头</th>
+      <th style="background: #fff5f5; font-weight: 600; text-align: left; padding: 6px 13px; border: 1px solid #fabec9; color: #db4c3f;">表头</th>
     </tr>
   </thead>
   <tbody>
     <tr>
-      <td style="padding: 6px 13px; border: 1px solid #dfe2e5;">内容</td>
+      <td style="padding: 6px 13px; border: 1px solid #fabec9;">内容</td>
     </tr>
   </tbody>
 </table>
@@ -511,8 +511,8 @@
 | 主色调 | `#db4c3f` | 用于标题装饰、链接、强调 |
 | 正文色 | `#333333` | 主要文字颜色 |
 | 次要色 | `#6a737d` | 引用、次要文字 |
-| 边框色 | `#dfe2e5` | 表格、分隔线 |
-| 背景色 | `#fff5f5` | 引用背景、H2背景 |
+| 边框色 | `#fabec9` | 表格、边框 (柔和铁锈红) |
+| 背景色 | `#fff5f5` | 引用背景、H2背景、表头背景 |
 
 ## 微信兼容性注意事项
 

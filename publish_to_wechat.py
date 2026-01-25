@@ -75,14 +75,15 @@ BASIC_STYLE = """
   #nice ul, #nice ol { padding-left: 2em; margin-bottom: 16px; }
   #nice li { margin-bottom: 4px; }
   #nice table { display: block; width: 100%; overflow: auto; margin-bottom: 16px; border-spacing: 0; border-collapse: collapse; }
-  #nice tr { background-color: #fff; border-top: 1px solid #c6cbd1; }
-  #nice tr:nth-child(2n) { background-color: #f6f8fa; }
-  #nice th, #nice td { padding: 6px 13px; border: 1px solid #dfe2e5; }
-  #nice th { font-weight: 600; color: #db4c3f; }
+  #nice tr { background-color: #fff; border-top: 1px solid #fabec9; }
+  #nice tr:nth-child(2n) { background-color: #fff5f5; }
+  #nice th, #nice td { padding: 6px 13px; border: 1px solid #fabec9; }
+  #nice th { font-weight: 600; color: #db4c3f; background-color: #fff5f5; }
   #nice strong { color: #db4c3f; }
+  #nice hr { border: none; border-top: 1px dashed #db4c3f; margin: 30px 0; }
   /* Admonition/Mermaid 相关样式 */
   .callout-icon svg { width: 20px; height: 20px; vertical-align: middle; }
-  .footnotes { font-size: 14px; color: #666; margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee; }
+  .footnotes { font-size: 14px; color: #666; margin-top: 40px; padding-top: 20px; border-top: 1px dashed #db4c3f; }
   .footnote-item { margin-bottom: 10px; }
 </style>
 """
@@ -562,7 +563,13 @@ def md_to_html(md_content):
     final_html = final_html.replace('<strong>', '<strong style="color: #db4c3f; font-weight: bold;">')
 
     # Table headers: 铁锈红字体
-    final_html = final_html.replace('<th>', '<th style="font-weight: 600; color: #db4c3f; padding: 6px 13px; border: 1px solid #dfe2e5; background: #f5f7fa;">')
+    final_html = final_html.replace('<th>', '<th style="font-weight: 600; color: #db4c3f; padding: 6px 13px; border: 1px solid #fabec9; background: #fff5f5;">')
+
+    # Table cells: 浅红边框
+    final_html = final_html.replace('<td>', '<td style="padding: 6px 13px; border: 1px solid #fabec9;">')
+
+    # HR: 虚线分隔
+    final_html = final_html.replace('<hr>', '<hr style="border: 0; border-top: 1px dashed #db4c3f; margin: 30px 0;">')
 
     # Blockquote: 铁锈红左边框 + 浅红背景
     final_html = final_html.replace('<blockquote>', '<blockquote style="margin: 16px 0; padding: 10px 16px; color: #6a737d; border-left: 4px solid #db4c3f; background-color: #fff5f5; border-radius: 4px;">')
