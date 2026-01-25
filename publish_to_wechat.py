@@ -543,8 +543,9 @@ def md_to_html(md_content):
     # 已经处理过的 Admonition 是 HTML，markdown 库默认会保留块级 HTML
     html = markdown.markdown(md_content, extensions=['fenced_code', 'tables'])
 
+    # 添加全局背景色 #fff5f5
     final_html = f"""
-    <section id="nice">
+    <section id="nice" style="background-color: #fff5f5; padding: 20px; border-radius: 8px;">
         {BASIC_STYLE}
         {html}
     </section>
@@ -553,14 +554,12 @@ def md_to_html(md_content):
     # H1: 居中，底部实线
     final_html = final_html.replace('<h1>', '<h1 style="font-size: 22px; font-weight: bold; margin: 20px 0 10px; text-align: center; padding-bottom: 5px; border-bottom: 2px solid #db4c3f;">')
 
-    # H2: 左侧粗线，底部虚线，带背景色
-    # 优化背景色：#fff5f5 -> #fcecec (稍微加深一点点的暖调，避免像脏白色)
-    h2_style = 'style="font-size: 20px; font-weight: bold; margin: 25px 0 15px; padding: 5px 10px; border-left: 5px solid #db4c3f; border-bottom: 1px dashed #db4c3f; background: #fcecec; line-height: 1.5;"'
+    # H2: 左侧粗线，底部虚线，去除了背景色(整体背景色已设)
+    h2_style = 'style="font-size: 20px; font-weight: bold; margin: 25px 0 15px; padding: 5px 10px; border-left: 5px solid #db4c3f; border-bottom: 1px dashed #db4c3f; line-height: 1.5;"'
     final_html = final_html.replace('<h2>', f'<h2 {h2_style}>')
 
-    # H3: 同样应用 H2 的"方框"样式 (因为用户常用 ### 作为主要章节标题)
-    # 稍微减小字号以示区分，但保持视觉风格一致
-    h3_style = 'style="font-size: 18px; font-weight: bold; margin: 22px 0 12px; padding: 5px 10px; border-left: 5px solid #db4c3f; border-bottom: 1px dashed #db4c3f; background: #fcecec; line-height: 1.5;"'
+    # H3: 同样应用 H2 的样式
+    h3_style = 'style="font-size: 18px; font-weight: bold; margin: 22px 0 12px; padding: 5px 10px; border-left: 5px solid #db4c3f; border-bottom: 1px dashed #db4c3f; line-height: 1.5;"'
     final_html = final_html.replace('<h3>', f'<h3 {h3_style}>')
 
     # Strong: 铁锈红字体
@@ -580,14 +579,14 @@ def md_to_html(md_content):
     final_html = final_html.replace('<p>', '<p style="margin-bottom: 15px; line-height: 1.6; color: #333; text-align: justify;">')
 
     # Table headers: 铁锈红字体
-    final_html = final_html.replace('<th>', '<th style="font-weight: 600; color: #db4c3f; padding: 6px 13px; border: 1px solid #fabec9; background: #fcecec;">')
+    final_html = final_html.replace('<th>', '<th style="font-weight: 600; color: #db4c3f; padding: 6px 13px; border: 1px solid #fabec9;">')
 
     # Table cells: 浅红边框
     final_html = final_html.replace('<td>', '<td style="padding: 6px 13px; border: 1px solid #fabec9;">')
 
-    # HR: 虚线分隔，加粗一点
-    # 使用正则替换，以匹配 <hr> 或 <hr />
-    final_html = re.sub(r'<hr\s*/?>', '<hr style="border: 0; border-top: 2px dashed #db4c3f; margin: 40px 0;">', final_html)
+    # HR: 渐变分割线 (中间深两边浅)
+    # 使用 linear-gradient 实现渐变
+    final_html = re.sub(r'<hr\s*/?>', '<hr style="border: 0; height: 1px; background-image: linear-gradient(to right, rgba(219, 76, 63, 0), rgba(219, 76, 63, 1), rgba(219, 76, 63, 0)); margin: 40px 0;">', final_html)
 
     return final_html
 
