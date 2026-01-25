@@ -11,6 +11,10 @@ import subprocess
 import tempfile
 import zlib
 from urllib.parse import urlparse
+from pygments import highlight
+from pygments.lexers import get_lexer_by_name, guess_lexer
+from pygments.formatters import HtmlFormatter
+
 
 # ================= 配置区域 =================
 CONFIG_FILE = "config/wechat-credentials.local.md"
@@ -540,8 +544,19 @@ def process_content_workflow(content, token):
 def md_to_html(md_content):
     """Markdown 转 HTML"""
     # 转换剩余的 Markdown (如列表、粗体等)
-    # 已经处理过的 Admonition 是 HTML，markdown 库默认会保留块级 HTML
-    html = markdown.markdown(md_content, extensions=['fenced_code', 'tables'])
+    # 启用 codehilite 扩展以支持代码高亮
+    # 启用 fenced_code 以支持 ``` 语法
+    html = markdown.markdown(md_content,
+        extensions=['fenced_code', 'tables', 'codehilite'],
+        extension_configs={
+            'codehilite': {
+                'css_class': 'highlight',
+                'guess_lang': True,
+                'use_pygments': True,
+                'noclasses': True  # 关键：生成内联样式
+            }
+        }
+    )
 
     # 添加全局背景色 (暖杏色/信纸色)
     final_html = f"""
@@ -570,8 +585,8 @@ def md_to_html(md_content):
     final_html = final_html.replace('<strong>', '<strong style="color: #db4c3f; font-weight: bold;">')
 
     # List Containers: 增加缩进，防止序号/列表点被吞
-    # 调整缩进为 40px (约 2.5em)，确保足够空间
-    list_style = 'style="margin-bottom: 16px; padding-left: 40px;"'
+    # 恢复缩进为 25px
+    list_style = 'style="margin-bottom: 16px; padding-left: 25px;"'
     final_html = final_html.replace('<ul>', f'<ul {list_style}>')
     final_html = final_html.replace('<ol>', f'<ol {list_style}>')
 
@@ -582,16 +597,27 @@ def md_to_html(md_content):
     final_html = re.sub(r'<li>(?!<p>)(.*?)</li>', r'<li><span style="color: #333;">\1</span></li>', final_html, flags=re.DOTALL)
 
     # Code Blocks (Pre + Code): 优化代码块样式
-    # 使用正则替换，以支持带有 class="language-xxx" 的代码块
-    pre_style = 'style="background: #f7f1e3; border: 1px solid #e6dec5; border-radius: 5px; padding: 15px; overflow-x: auto; margin: 15px 0; color: #333; font-family: Consolas, Monaco, monospace; font-size: 13px; line-height: 1.5;"'
-    code_block_inner_style = 'style="background: transparent; color: #333; padding: 0; border: none; font-family: inherit; white-space: pre;"'
+    # 不再统一替换 pre/code，而是依赖 Pygments 生成的高亮 HTML
+    # 但 Pygments 生成的只是 <div class="highlight"><pre>...</pre></div>
+    # 我们需要给最外层容器加卡片样式，并给 pre 加样式
 
-    # 匹配 <pre><code ...> 或 <pre><code>，捕获 code 标签的属性
-    final_html = re.sub(
-        r'<pre><code([^>]*)>',
-        f'<pre {pre_style}><code\\1 {code_block_inner_style}>',
-        final_html
-    )
+    # 1. 给 Pygments 容器 (.highlight) 增加卡片样式
+    # 暖米色背景 + 暖灰边框 + 圆角 + 内边距
+    highlight_container_style = 'background: #f7f1e3; border: 1px solid #e6dec5; border-radius: 5px; padding: 10px 15px; margin: 15px 0; overflow-x: auto;'
+    final_html = final_html.replace('<div class="highlight">', f'<div class="highlight" style="{highlight_container_style}">')
+
+    # 2. 给 pre 标签加样式 (消除默认 margin，字体设置)
+    # Pygments 的 pre 通常包含 span 元素
+    pre_style = 'margin: 0; line-height: 1.5; font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace; font-size: 13px; color: #333; white-space: pre;'
+    final_html = final_html.replace('<pre>', f'<pre style="{pre_style}">')
+
+    # 3. 兜底处理：如果有未被 Pygments 处理的普通代码块 (比如缩进式代码块)
+    # 它们通常是 <pre><code>...</code></pre> 结构
+    # 此时我们需要手动加样式
+    # 注意：Pygments 生成的 pre 里面通常直接是 span，没有 code 标签 (或者 formatter 设置不同)
+    # 如果 markdown 解析器保留了 <pre><code> 结构且没被高亮处理：
+    fallback_pre_style = 'background: #f7f1e3; border: 1px solid #e6dec5; border-radius: 5px; padding: 15px; overflow-x: auto; margin: 15px 0; color: #333; font-family: Consolas, Monaco, monospace; font-size: 13px; line-height: 1.5;'
+    final_html = final_html.replace('<pre><code>', f'<pre style="{fallback_pre_style}"><code>')
 
     # Inline Code: 优化行内代码样式
     # 策略：查找所有 code 标签，排除掉已经带有 style 属性的 (即上面处理过的块级代码)
