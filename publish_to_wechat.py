@@ -516,6 +516,74 @@ def preprocess_json_comments(content):
     return re.sub(r'```(\w+)\n([\s\S]*?)```', process_json_block, content)
 
 
+def fix_code_blocks_in_lists(content):
+    """
+    修复列表项内代码块的格式问题
+
+    问题：Obsidian 中列表项内的代码块只有 4 空格缩进，
+    但标准 Markdown 要求 8 空格才能正确识别。
+    导致代码块被解析为行内 <code> 而非 <pre> 块。
+
+    解决方案：将列表项内的代码块提取出来，放到列表项外部单独处理。
+    """
+    lines = content.split('\n')
+    result = []
+    i = 0
+
+    while i < len(lines):
+        line = lines[i]
+
+        # 检测列表项内缩进的代码块开始（4 空格 + ```）
+        if re.match(r'^    ```\w*', line):
+            # 找到代码块，收集完整的代码块内容
+            code_block_lines = [line.lstrip()]  # 移除前导空格
+            i += 1
+            while i < len(lines):
+                inner_line = lines[i]
+                # 检测代码块结束（4 空格 + ```）
+                if re.match(r'^    ```\s*$', inner_line):
+                    code_block_lines.append('```')
+                    i += 1
+                    break
+                # 移除 4-6 空格的缩进（保留代码内部的相对缩进）
+                cleaned = re.sub(r'^    {1,2}', '', inner_line)
+                code_block_lines.append(cleaned)
+                i += 1
+
+            # 将代码块内容添加到结果（无缩进，作为独立块）
+            result.append('')  # 空行分隔
+            result.extend(code_block_lines)
+            result.append('')  # 空行分隔
+        else:
+            result.append(line)
+            i += 1
+
+    return '\n'.join(result)
+
+
+def remove_orphan_language_labels(content):
+    """
+    移除代码块前的孤立语言标签
+
+    问题：原始 MD 中可能有类似这样的结构：
+        JSON
+
+        ```json
+        ...
+        ```
+
+    其中 "JSON" 是孤立的文本，不是代码块的一部分。
+    这会导致 "JSON" 被渲染为独立段落。
+
+    解决方案：移除代码块前的孤立语言标签行
+    """
+    # 匹配：空行 + 语言标签行 + 空行 + 代码块开始
+    # 语言标签通常是大写的 JSON, PYTHON, JAVASCRIPT 等
+    pattern = r'\n\s*(JSON|PYTHON|JAVASCRIPT|JAVA|SHELL|BASH|SQL|XML|HTML|CSS|YAML|TOML)\s*\n\s*\n(\s*```)'
+    content = re.sub(pattern, r'\n\n\2', content, flags=re.IGNORECASE)
+    return content
+
+
 def process_content_workflow(content, token):
     """完整的 Markdown 处理工作流"""
 
@@ -543,6 +611,13 @@ def process_content_workflow(content, token):
     # 3. 处理多行列表项（列表项内有换行但不是新列表项）
     # 保留列表项内部的合理换行，但移除过多的空行
     body = re.sub(r'\n{3,}', '\n\n', body)  # 将连续3+空行压缩为2行
+
+    # [新增] 修复列表项内代码块的格式问题
+    # Obsidian 中列表项内的代码块缩进不足，导致 Markdown 解析器无法识别
+    body = fix_code_blocks_in_lists(body)
+
+    # [新增] 移除代码块前的孤立语言标签（如单独一行的 "JSON"）
+    body = remove_orphan_language_labels(body)
 
     # [新增] JSON 注释预处理：移除 JSON 代码块中的 // 注释
     # 这样 Pygments 才能正确进行语法高亮
