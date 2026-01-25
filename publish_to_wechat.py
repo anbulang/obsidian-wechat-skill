@@ -554,13 +554,29 @@ def md_to_html(md_content):
     final_html = final_html.replace('<h1>', '<h1 style="font-size: 22px; font-weight: bold; margin: 20px 0 10px; text-align: center; padding-bottom: 5px; border-bottom: 2px solid #db4c3f;">')
 
     # H2: 左侧粗线，底部虚线，带背景色
-    final_html = final_html.replace('<h2>', '<h2 style="font-size: 20px; font-weight: bold; margin: 25px 0 15px; padding: 5px 10px; border-left: 5px solid #db4c3f; border-bottom: 1px dashed #db4c3f; background: #fff5f5; line-height: 1.5;">')
+    h2_style = 'style="font-size: 20px; font-weight: bold; margin: 25px 0 15px; padding: 5px 10px; border-left: 5px solid #db4c3f; border-bottom: 1px dashed #db4c3f; background: #fff5f5; line-height: 1.5;"'
+    final_html = final_html.replace('<h2>', f'<h2 {h2_style}>')
 
-    # H3: 只有加粗和间距
-    final_html = final_html.replace('<h3>', '<h3 style="font-size: 18px; font-weight: bold; margin: 20px 0 10px;">')
+    # H3: 同样应用 H2 的"方框"样式 (因为用户常用 ### 作为主要章节标题)
+    # 稍微减小字号以示区分，但保持视觉风格一致
+    h3_style = 'style="font-size: 18px; font-weight: bold; margin: 22px 0 12px; padding: 5px 10px; border-left: 5px solid #db4c3f; border-bottom: 1px dashed #db4c3f; background: #fff5f5; line-height: 1.5;"'
+    final_html = final_html.replace('<h3>', f'<h3 {h3_style}>')
 
     # Strong: 铁锈红字体
     final_html = final_html.replace('<strong>', '<strong style="color: #db4c3f; font-weight: bold;">')
+
+    # List Items: 序号/圆点改为红色，正文保持黑色
+    # 策略：设置 li 颜色为红色，然后将 li 的内容包裹在 span 中重置为黑色
+    # 注意：这需要简单的正则处理，避免破坏 li 内部已有的标签结构
+    final_html = final_html.replace('<li>', '<li style="color: #db4c3f; margin-bottom: 4px;">')
+    # 只有当 li 内部没有被 p 标签包裹时，才需要强制 span 变色 (markdown 列表有时会包 p，有时不会)
+    # 简单起见，我们对所有 li 内容尝试包裹一层 span (color: #333)
+    # 但这比较复杂，不如直接使用 CSS 选择器？微信内联样式不支持 ::marker
+    # 替代方案：在 CSS 头部定义，并在此处做简单的文本替换
+    # 正则替换：<li>(?!<p)(.*?)</li> -> <li><span style="color: #333;">\1</span></li>
+    final_html = re.sub(r'<li>(?!<p>)(.*?)</li>', r'<li><span style="color: #333;">\1</span></li>', final_html, flags=re.DOTALL)
+    # 如果 li 内部有 p，则给 p 加样式
+    final_html = final_html.replace('<p>', '<p style="margin-bottom: 15px; line-height: 1.6; color: #333; text-align: justify;">')
 
     # Table headers: 铁锈红字体
     final_html = final_html.replace('<th>', '<th style="font-weight: 600; color: #db4c3f; padding: 6px 13px; border: 1px solid #fabec9; background: #fff5f5;">')
@@ -568,14 +584,8 @@ def md_to_html(md_content):
     # Table cells: 浅红边框
     final_html = final_html.replace('<td>', '<td style="padding: 6px 13px; border: 1px solid #fabec9;">')
 
-    # HR: 虚线分隔
-    final_html = final_html.replace('<hr>', '<hr style="border: 0; border-top: 1px dashed #db4c3f; margin: 30px 0;">')
-
-    # Blockquote: 铁锈红左边框 + 浅红背景
-    final_html = final_html.replace('<blockquote>', '<blockquote style="margin: 16px 0; padding: 10px 16px; color: #6a737d; border-left: 4px solid #db4c3f; background-color: #fff5f5; border-radius: 4px;">')
-
-    # P: 段落样式
-    final_html = final_html.replace('<p>', '<p style="margin-bottom: 15px; line-height: 1.6; color: #333; text-align: justify;">')
+    # HR: 虚线分隔，加粗一点
+    final_html = final_html.replace('<hr>', '<hr style="border: 0; border-top: 2px dashed #db4c3f; margin: 40px 0;">')
 
     return final_html
 
