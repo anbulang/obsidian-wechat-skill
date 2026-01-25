@@ -25,22 +25,26 @@
 
 /* ========== 标题 ========== */
 #nice h1 {
-  font-size: 24px;
+  font-size: 22px;
   font-weight: bold;
   text-align: center;
-  margin: 40px 0 30px;
+  margin: 20px 0 10px;
   color: #333;
-  border-bottom: 2px solid #3370ff;
-  padding-bottom: 10px;
+  border-bottom: 2px solid #db4c3f;
+  padding-bottom: 5px;
 }
 
 #nice h2 {
   font-size: 20px;
   font-weight: bold;
-  margin: 50px 0 25px;
+  margin: 18px 0 10px;
   color: #333;
-  padding-left: 12px;
-  border-left: 4px solid #3370ff;
+  padding-left: 10px;
+  border-left: 5px solid #db4c3f;
+  border-bottom: 1px dashed #db4c3f;
+  background: #fff5f5;
+  line-height: 1.5;
+  padding: 5px 10px;
 }
 
 #nice h3 {
@@ -97,11 +101,11 @@
 
 /* ========== 引用 ========== */
 #nice blockquote {
-  margin: 20px 0;
-  padding: 15px 20px;
-  background: #f7f7f7;
-  border-left: 4px solid #ddd;
-  border-radius: 0 4px 4px 0;
+  margin: 0 0 16px;
+  padding: 0 1em;
+  color: #6a737d;
+  border-left: .25em solid #db4c3f;
+  background-color: #fff5f5;
 }
 
 #nice blockquote p {
@@ -116,7 +120,7 @@
 
 /* ========== 强调样式 ========== */
 #nice strong {
-  color: #3370ff;
+  color: #db4c3f;
   font-weight: bold;
 }
 
@@ -229,15 +233,16 @@
 
 #nice table th {
   background: #f5f7fa;
-  font-weight: bold;
+  font-weight: 600;
   text-align: left;
-  padding: 12px 16px;
-  border: 1px solid #e4e7ed;
+  padding: 6px 13px;
+  border: 1px solid #dfe2e5;
+  color: #db4c3f;
 }
 
 #nice table td {
-  padding: 12px 16px;
-  border: 1px solid #e4e7ed;
+  padding: 6px 13px;
+  border: 1px solid #dfe2e5;
 }
 
 #nice table tr:nth-child(even) {
@@ -504,11 +509,11 @@
 
 | 元素 | 默认色值 | 说明 |
 |------|----------|------|
-| 主色调 | `#3370ff` | 用于标题装饰、链接、强调 |
+| 主色调 | `#db4c3f` | 用于标题装饰、链接、强调 |
 | 正文色 | `#333333` | 主要文字颜色 |
-| 次要色 | `#666666` | 引用、次要文字 |
-| 边框色 | `#e4e7ed` | 表格、分隔线 |
-| 背景色 | `#f5f7fa` | 表头、代码背景 |
+| 次要色 | `#6a737d` | 引用、次要文字 |
+| 边框色 | `#dfe2e5` | 表格、分隔线 |
+| 背景色 | `#fff5f5` | 引用背景、H2背景 |
 
 ## 微信兼容性注意事项
 

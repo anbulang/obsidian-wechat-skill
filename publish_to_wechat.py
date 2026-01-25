@@ -63,14 +63,14 @@ ADMONITION_ALIASES = {
 BASIC_STYLE = """
 <style>
   #nice { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 16px; line-height: 1.6; color: #333; word-wrap: break-word; }
-  #nice h1 { font-size: 22px; font-weight: bold; margin: 20px 0 10px; padding-bottom: 5px; border-bottom: 1px solid #eaecef; }
-  #nice h2 { font-size: 20px; font-weight: bold; margin: 18px 0 10px; padding-left: 10px; border-left: 4px solid #448aff; background: rgba(68, 138, 255, 0.1); line-height: 1.5; padding: 5px 10px; }
+  #nice h1 { font-size: 22px; font-weight: bold; margin: 20px 0 10px; text-align: center; padding-bottom: 5px; border-bottom: 2px solid #db4c3f; }
+  #nice h2 { font-size: 20px; font-weight: bold; margin: 18px 0 10px; padding-left: 10px; border-left: 5px solid #db4c3f; border-bottom: 1px dashed #db4c3f; background: #fff5f5; line-height: 1.5; padding: 5px 10px; }
   #nice h3 { font-size: 18px; font-weight: bold; margin: 16px 0 8px; }
   #nice p { margin-bottom: 15px; text-align: justify; }
   #nice code { background-color: rgba(27,31,35,.05); border-radius: 3px; font-size: 85%; margin: 0; padding: .2em .4em; font-family: SFMono-Regular,Consolas,Liberation Mono,Menlo,Courier,monospace; }
   #nice pre { background: #f6f8fa; border-radius: 4px; padding: 16px; overflow: auto; line-height: 1.45; }
   #nice pre code { background: transparent; padding: 0; white-space: pre; }
-  #nice blockquote { margin: 0 0 16px; padding: 0 1em; color: #6a737d; border-left: .25em solid #dfe2e5; background-color: #f9f9f9; }
+  #nice blockquote { margin: 0 0 16px; padding: 0 1em; color: #6a737d; border-left: .25em solid #db4c3f; background-color: #fff5f5; }
   #nice img { max-width: 100%; border-radius: 4px; display: block; margin: 20px auto; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
   #nice ul, #nice ol { padding-left: 2em; margin-bottom: 16px; }
   #nice li { margin-bottom: 4px; }
@@ -78,7 +78,8 @@ BASIC_STYLE = """
   #nice tr { background-color: #fff; border-top: 1px solid #c6cbd1; }
   #nice tr:nth-child(2n) { background-color: #f6f8fa; }
   #nice th, #nice td { padding: 6px 13px; border: 1px solid #dfe2e5; }
-  #nice th { font-weight: 600; }
+  #nice th { font-weight: 600; color: #db4c3f; }
+  #nice strong { color: #db4c3f; }
   /* Admonition/Mermaid 相关样式 */
   .callout-icon svg { width: 20px; height: 20px; vertical-align: middle; }
   .footnotes { font-size: 14px; color: #666; margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee; }
@@ -548,7 +549,7 @@ def md_to_html(md_content):
     </section>
     """
     # 简单的样式增强
-    final_html = final_html.replace('<h1>', '<h1 style="font-size: 22px; font-weight: bold; margin: 20px 0 10px; padding-bottom: 5px; border-bottom: 1px solid #eaecef;">')
+    final_html = final_html.replace('<h1>', '<h1 style="font-size: 22px; font-weight: bold; margin: 20px 0 10px; text-align: center; padding-bottom: 5px; border-bottom: 2px solid #db4c3f;">')
     final_html = final_html.replace('<p>', '<p style="margin-bottom: 15px; line-height: 1.6; color: #333;">')
 
     return final_html
