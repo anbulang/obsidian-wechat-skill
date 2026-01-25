@@ -817,42 +817,21 @@ def md_to_html(md_content):
     # 使用 linear-gradient 实现渐变
     final_html = re.sub(r'<hr\s*/?>', '<hr style="border: 0; height: 1px; background-image: linear-gradient(to right, rgba(219, 76, 63, 0), rgba(219, 76, 63, 1), rgba(219, 76, 63, 0)); margin: 40px 0;">', final_html)
 
-    # [关键] HTML 层列表项简化 - 这是微信编辑器空行问题的根源
-    # 当 Markdown 列表项之间有空行时，解析器会将内容包裹在 <p> 中
-    # 例如: <li><p>内容</p></li> 需要简化为 <li>内容</li>
+    # [关键] HTML 层列表项清理 - 移除空的列表项，但保留正常结构
+    # 策略：保守处理，只移除明显有问题的结构，不破坏正常内容
     def simplify_list_items(html_content):
-        """简化列表项结构，移除不必要的 p 标签包裹 - 改进版"""
+        """清理列表项中的空元素，但保留正常换行"""
 
-        def process_li(match):
-            """处理单个 li 标签"""
-            li_attrs = match.group(1) or ''
-            li_content = match.group(2)
+        # 1. 移除完全空的 li（只有空白）
+        html_content = re.sub(r'<li[^>]*>\s*</li>', '', html_content)
 
-            # 移除 li 内所有 p 标签的包裹，但保留内容
-            # <p style="...">内容</p> → 内容
-            cleaned = re.sub(r'<p[^>]*>([\s\S]*?)</p>', r'\1', li_content)
+        # 2. 移除 li 内只有空 p 的情况
+        html_content = re.sub(r'<li[^>]*>\s*<p[^>]*>\s*</p>\s*</li>', '', html_content)
 
-            # 移除多余的空白和换行
-            cleaned = re.sub(r'\s*\n\s*', ' ', cleaned)
-            cleaned = cleaned.strip()
+        # 3. 移除孤立的空 p 标签
+        html_content = re.sub(r'<p[^>]*>\s*</p>', '', html_content)
 
-            # 如果清理后内容为空，返回空字符串（稍后移除）
-            if not cleaned:
-                return ''
-
-            return f'<li{li_attrs}>{cleaned}</li>'
-
-        # 处理所有 li 标签
-        html_content = re.sub(
-            r'<li([^>]*)>([\s\S]*?)</li>',
-            process_li,
-            html_content
-        )
-
-        # 移除空的 li 标签（process_li 返回的空字符串）
-        html_content = re.sub(r'\s*<li[^>]*>\s*</li>\s*', '', html_content)
-
-        # 移除连续的空行
+        # 4. 移除连续的空行（超过2个换行压缩为2个）
         html_content = re.sub(r'\n{3,}', '\n\n', html_content)
 
         return html_content
