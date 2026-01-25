@@ -501,6 +501,12 @@ def process_content_workflow(content, token):
         frontmatter = yaml.safe_load(match.group(1))
         body = content[match.end():]
 
+    # [新增] 列表空行清理：移除列表项之间的多余空行，防止微信编辑器渲染异常
+    # 1. 紧凑化无序列表
+    body = re.sub(r'(\n\s*[-*+]\s+.*)\n\n+(?=\s*[-*+]\s+)', r'\1\n', body)
+    # 2. 紧凑化有序列表
+    body = re.sub(r'(\n\s*\d+\.\s+.*)\n\n+(?=\s*\d+\.\s+)', r'\1\n', body)
+
     # 2. Mermaid 处理 (转为图片链接)
     body = process_mermaid(body)
 
@@ -604,15 +610,31 @@ def md_to_html(md_content):
 
     # 1. 给 Pygments 容器 (.highlight) 增加卡片样式
     # 暖米色背景 + 暖灰边框 + 圆角 + 内边距
-    highlight_container_style = 'background: #f7f1e3; border: 1px solid #e6dec5; border-radius: 5px; padding: 10px 15px; margin: 15px 0; overflow-x: auto;'
+    # 注意：这里移除了 overflow-x: auto，交给了内部的 pre 处理，避免双重滚动条
+    highlight_container_style = 'background: #f7f1e3; border: 1px solid #e6dec5; border-radius: 5px; padding: 10px 15px; margin: 15px 0;'
     final_html = final_html.replace('<div class="highlight">', f'<div class="highlight" style="{highlight_container_style}">')
 
     # 2. 给 pre 标签加样式 (消除默认 margin，字体设置)
     # Pygments 的 pre 通常包含 span 元素
-    pre_style = 'margin: 0; line-height: 1.5; font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace; font-size: 13px; color: #333; white-space: pre;'
+    # 关键修改：强制 white-space: pre 以保留格式化 (换行和缩进)
+    # 关键修改：overflow-x: auto 允许横向滚动
+    pre_style = 'margin: 0; line-height: 1.5; font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace; font-size: 13px; color: #333; white-space: pre; overflow-x: auto; border: none; padding: 0;'
     final_html = final_html.replace('<pre>', f'<pre style="{pre_style}">')
 
-    # 3. 兜底处理：如果有未被 Pygments 处理的普通代码块 (比如缩进式代码块)
+    # 3. 清理代码块内部 span 的背景色
+    # Pygments 生成的 span 可能会自带 background-color，导致每行代码有独立背景，这很难看
+    # 我们需要移除 span 标签中的 background 样式，统一使用外层容器的背景
+    def clean_span_background(match):
+        block = match.group(0)
+        # 移除 background-color: ...; 或 background: ...;
+        block = re.sub(r'background(-color)?:\s*[^;"]+;?', '', block)
+        return block
+
+    # 仅针对 <div class="highlight"> 内部的内容进行清理
+    # 使用正则非贪婪匹配捕获代码块
+    final_html = re.sub(r'(<div class="highlight"[^>]*>.*?</div>)', clean_span_background, final_html, flags=re.DOTALL)
+
+    # 4. 兜底处理：如果有未被 Pygments 处理的普通代码块 (比如缩进式代码块)
     # 它们通常是 <pre><code>...</code></pre> 结构
     # 此时我们需要手动加样式
     # 注意：Pygments 生成的 pre 里面通常直接是 span，没有 code 标签 (或者 formatter 设置不同)
