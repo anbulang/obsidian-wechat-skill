@@ -39,7 +39,6 @@
   font-weight: bold;
   margin: 18px 0 10px;
   color: #333;
-  padding-left: 10px;
   border-left: 5px solid #db4c3f;
   border-bottom: 1px dashed #db4c3f;
   background: #fff5f5;

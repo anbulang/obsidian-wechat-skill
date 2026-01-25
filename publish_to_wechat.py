@@ -64,7 +64,7 @@ BASIC_STYLE = """
 <style>
   #nice { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 16px; line-height: 1.6; color: #333; word-wrap: break-word; }
   #nice h1 { font-size: 22px; font-weight: bold; margin: 20px 0 10px; text-align: center; padding-bottom: 5px; border-bottom: 2px solid #db4c3f; }
-  #nice h2 { font-size: 20px; font-weight: bold; margin: 18px 0 10px; padding-left: 10px; border-left: 5px solid #db4c3f; border-bottom: 1px dashed #db4c3f; background: #fff5f5; line-height: 1.5; padding: 5px 10px; }
+  #nice h2 { font-size: 20px; font-weight: bold; margin: 18px 0 10px; padding: 5px 10px; border-left: 5px solid #db4c3f; border-bottom: 1px dashed #db4c3f; background: #fff5f5; line-height: 1.5; }
   #nice h3 { font-size: 18px; font-weight: bold; margin: 16px 0 8px; }
   #nice p { margin-bottom: 15px; text-align: justify; }
   #nice code { background-color: rgba(27,31,35,.05); border-radius: 3px; font-size: 85%; margin: 0; padding: .2em .4em; font-family: SFMono-Regular,Consolas,Liberation Mono,Menlo,Courier,monospace; }
@@ -548,9 +548,27 @@ def md_to_html(md_content):
         {html}
     </section>
     """
-    # 简单的样式增强
+    # 简单的样式增强 (强制内联关键样式，确保在微信中生效)
+    # H1: 居中，底部实线
     final_html = final_html.replace('<h1>', '<h1 style="font-size: 22px; font-weight: bold; margin: 20px 0 10px; text-align: center; padding-bottom: 5px; border-bottom: 2px solid #db4c3f;">')
-    final_html = final_html.replace('<p>', '<p style="margin-bottom: 15px; line-height: 1.6; color: #333;">')
+
+    # H2: 左侧粗线，底部虚线，带背景色
+    final_html = final_html.replace('<h2>', '<h2 style="font-size: 20px; font-weight: bold; margin: 25px 0 15px; padding: 5px 10px; border-left: 5px solid #db4c3f; border-bottom: 1px dashed #db4c3f; background: #fff5f5; line-height: 1.5;">')
+
+    # H3: 只有加粗和间距
+    final_html = final_html.replace('<h3>', '<h3 style="font-size: 18px; font-weight: bold; margin: 20px 0 10px;">')
+
+    # Strong: 铁锈红字体
+    final_html = final_html.replace('<strong>', '<strong style="color: #db4c3f; font-weight: bold;">')
+
+    # Table headers: 铁锈红字体
+    final_html = final_html.replace('<th>', '<th style="font-weight: 600; color: #db4c3f; padding: 6px 13px; border: 1px solid #dfe2e5; background: #f5f7fa;">')
+
+    # Blockquote: 铁锈红左边框 + 浅红背景
+    final_html = final_html.replace('<blockquote>', '<blockquote style="margin: 16px 0; padding: 10px 16px; color: #6a737d; border-left: 4px solid #db4c3f; background-color: #fff5f5; border-radius: 4px;">')
+
+    # P: 段落样式
+    final_html = final_html.replace('<p>', '<p style="margin-bottom: 15px; line-height: 1.6; color: #333; text-align: justify;">')
 
     return final_html
 
