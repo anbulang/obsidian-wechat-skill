@@ -562,19 +562,35 @@ def md_to_html(md_content):
     h3_style = 'style="font-size: 18px; font-weight: bold; margin: 22px 0 12px; padding: 5px 10px; border-left: 5px solid #db4c3f; border-bottom: 1px dashed #db4c3f; line-height: 1.5;"'
     final_html = final_html.replace('<h3>', f'<h3 {h3_style}>')
 
+    # H4: 增加 H4 样式 (稍小一些，保持风格)
+    h4_style = 'style="font-size: 16px; font-weight: bold; margin: 20px 0 10px; padding: 4px 8px; border-left: 4px solid #db4c3f; background: #fcecec; line-height: 1.5;"'
+    final_html = final_html.replace('<h4>', f'<h4 {h4_style}>')
+
     # Strong: 铁锈红字体
     final_html = final_html.replace('<strong>', '<strong style="color: #db4c3f; font-weight: bold;">')
 
+    # List Containers: 增加缩进，防止序号/列表点被吞
+    list_style = 'style="margin-bottom: 16px; padding-left: 25px;"'
+    final_html = final_html.replace('<ul>', f'<ul {list_style}>')
+    final_html = final_html.replace('<ol>', f'<ol {list_style}>')
+
     # List Items: 序号/圆点改为红色，正文保持黑色
     # 策略：设置 li 颜色为红色，然后将 li 的内容包裹在 span 中重置为黑色
-    # 注意：这需要简单的正则处理，避免破坏 li 内部已有的标签结构
     final_html = final_html.replace('<li>', '<li style="color: #db4c3f; margin-bottom: 4px;">')
-    # 只有当 li 内部没有被 p 标签包裹时，才需要强制 span 变色 (markdown 列表有时会包 p，有时不会)
-    # 简单起见，我们对所有 li 内容尝试包裹一层 span (color: #333)
-    # 但这比较复杂，不如直接使用 CSS 选择器？微信内联样式不支持 ::marker
-    # 替代方案：在 CSS 头部定义，并在此处做简单的文本替换
-    # 正则替换：<li>(?!<p)(.*?)</li> -> <li><span style="color: #333;">\1</span></li>
+    # 正则替换 li 内容，包裹 span 黑色
     final_html = re.sub(r'<li>(?!<p>)(.*?)</li>', r'<li><span style="color: #333;">\1</span></li>', final_html, flags=re.DOTALL)
+
+    # Code Blocks (Pre + Code): 优化代码块样式
+    # 先处理块级代码 <pre><code>，赋予“卡片式”样式
+    pre_style = 'style="background: #f7f1e3; border: 1px solid #e6dec5; border-radius: 5px; padding: 15px; overflow-x: auto; margin: 15px 0; color: #333; font-family: Consolas, Monaco, monospace; font-size: 13px; line-height: 1.5;"'
+    code_block_inner_style = 'style="background: transparent; color: #333; padding: 0; border: none; font-family: inherit;"'
+    # 注意：Markdown 转换后通常是 <pre><code>...</code></pre>
+    final_html = final_html.replace('<pre><code>', f'<pre {pre_style}><code {code_block_inner_style}>')
+
+    # Inline Code: 优化行内代码样式
+    # 替换剩余的未带样式的 <code> 标签 (即行内代码)
+    inline_code_style = 'style="background: #fff0f0; color: #db4c3f; padding: 3px 5px; border-radius: 3px; font-family: Consolas, Monaco, monospace; font-size: 14px; margin: 0 2px;"'
+    final_html = final_html.replace('<code>', f'<code {inline_code_style}>')
     # 如果 li 内部有 p，则给 p 加样式
     final_html = final_html.replace('<p>', '<p style="margin-bottom: 15px; line-height: 1.6; color: #333; text-align: justify;">')
 
