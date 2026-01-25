@@ -543,9 +543,9 @@ def md_to_html(md_content):
     # 已经处理过的 Admonition 是 HTML，markdown 库默认会保留块级 HTML
     html = markdown.markdown(md_content, extensions=['fenced_code', 'tables'])
 
-    # 添加全局背景色 #fff5f5
+    # 添加全局背景色 (暖杏色/信纸色)
     final_html = f"""
-    <section id="nice" style="background-color: #fff5f5; padding: 20px; border-radius: 8px;">
+    <section id="nice" style="background-color: #fffdf9; padding: 20px; border-radius: 8px;">
         {BASIC_STYLE}
         {html}
     </section>
@@ -578,11 +578,11 @@ def md_to_html(md_content):
     # 如果 li 内部有 p，则给 p 加样式
     final_html = final_html.replace('<p>', '<p style="margin-bottom: 15px; line-height: 1.6; color: #333; text-align: justify;">')
 
-    # Table headers: 铁锈红字体
-    final_html = final_html.replace('<th>', '<th style="font-weight: 600; color: #db4c3f; padding: 6px 13px; border: 1px solid #fabec9;">')
+    # Table headers: 铁锈红字体 + 暖色背景
+    final_html = final_html.replace('<th>', '<th style="font-weight: 600; color: #db4c3f; padding: 6px 13px; border: 1px solid #e6dec5; background: #f7f1e3;">')
 
-    # Table cells: 浅红边框
-    final_html = final_html.replace('<td>', '<td style="padding: 6px 13px; border: 1px solid #fabec9;">')
+    # Table cells: 暖灰边框
+    final_html = final_html.replace('<td>', '<td style="padding: 6px 13px; border: 1px solid #e6dec5;">')
 
     # HR: 渐变分割线 (中间深两边浅)
     # 使用 linear-gradient 实现渐变
