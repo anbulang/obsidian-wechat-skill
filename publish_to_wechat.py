@@ -213,8 +213,11 @@ def render_mermaid_with_playwright(mermaid_code):
             stroke: #333 !important;
             stroke-width: 2px !important;
         }}
-        .mermaid text.sequenceNumber {{
+        /* Ensure sequence number text is white */
+        .mermaid text.sequenceNumber,
+        .mermaid .sequenceNumber text {{
             fill: #fff !important;
+            stroke: none !important;
         }}
     </style>
 </head>
