@@ -897,6 +897,43 @@ def md_to_html(md_content):
 
     final_html = simplify_list_items(final_html)
 
+    # ==================== 微信编辑器兼容性处理 ====================
+    # 问题根源：微信编辑器（非预览模式）会将 HTML 中的换行符当作列表项分隔符
+    # 导致 </li>\n<li> 之间的换行被解析为空列表项
+
+    def flatten_list_items(html_content):
+        """移除 li 内的 p 标签，保留内容（避免微信编辑器分割问题）"""
+        # <li style="..."><p style="...">内容</p></li> → <li style="...">内容</li>
+        html_content = re.sub(
+            r'<li([^>]*)>\s*<p[^>]*>([\s\S]*?)</p>\s*</li>',
+            r'<li\1>\2</li>',
+            html_content
+        )
+        return html_content
+
+    def compact_list_html(html_content):
+        """生成紧凑的列表 HTML，避免微信编辑器将换行当作空项"""
+        # 1. 移除 </li> 后到下一个 <li> 之间的所有空白
+        html_content = re.sub(r'</li>\s+<li', '</li><li', html_content)
+
+        # 2. 移除 <ul>/<ol> 开始标签后的空白
+        html_content = re.sub(r'(<[uo]l[^>]*>)\s+', r'\1', html_content)
+
+        # 3. 移除 </ul>/<ol> 前的空白
+        html_content = re.sub(r'\s+(</[uo]l>)', r'\1', html_content)
+
+        # 4. 移除嵌套列表前后的空白
+        html_content = re.sub(r'</li>\s+<[uo]l', '</li><ul', html_content)
+        html_content = re.sub(r'</[uo]l>\s+</li>', '</ul></li>', html_content)
+
+        return html_content
+
+    # 应用微信编辑器兼容性修复
+    final_html = flatten_list_items(final_html)    # 移除 li 内的 p 标签
+    final_html = compact_list_html(final_html)     # 移除列表标签间的空白
+    final_html = re.sub(r'</strong>\s*([：:])', r'</strong>\1', final_html)  # strong 后冒号紧邻
+    final_html = re.sub(r'>\s+<', '><', final_html)  # 整体 HTML 压缩（移除标签间换行）
+
     return final_html
 
 def publish_draft(token, article_data):
