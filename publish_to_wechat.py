@@ -803,6 +803,21 @@ def md_to_html(md_content):
 
     final_html = clean_code_block_backgrounds(final_html)
 
+    # [新增] 将代码块内的换行符转换为 <br> 标签
+    # 微信编辑器可能不支持 white-space: pre，所以用 <br> 确保换行
+    def convert_newlines_in_code(html_content):
+        """将代码块内的换行符转换为 <br>"""
+        def process_pre(match):
+            pre_tag = match.group(1)
+            content = match.group(2)
+            # 将 \n 转换为 <br>\n（保留原始换行以便阅读）
+            content = content.replace('\n', '<br>\n')
+            return f'{pre_tag}{content}</pre>'
+
+        return re.sub(r'(<pre[^>]*>)([\s\S]*?)</pre>', process_pre, html_content)
+
+    final_html = convert_newlines_in_code(final_html)
+
     # 2. 给 Pygments 容器 (.highlight) 增加卡片样式
     # 使用浅灰色背景 #f6f8fa
     highlight_container_style = 'background: #f6f8fa; border: 1px solid #e1e4e8; border-radius: 6px; padding: 16px; margin: 16px 0;'
