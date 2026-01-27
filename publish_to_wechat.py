@@ -781,6 +781,48 @@ def md_to_html(md_content):
     final_html = final_html.replace('<ol>', f'<ol {LIST_CONTAINER_STYLE}>')
     final_html = final_html.replace('<li>', f'<li {LIST_ITEM_STYLE}>')
 
+    # [新增] 手动注入列表符号
+    def inject_list_markers(html_content):
+        """为禁用默认样式的列表手动添加符号"""
+
+        # 处理无序列表 (ul)
+        def process_ul(match):
+            inner_html = match.group(2)
+            # 在每个 <li> 的内容开头加上 •
+            # 注意：我们要确保只在 li 标签后紧接着插入，不破坏内部结构
+            return f'<ul{match.group(1)}>' + re.sub(r'(<li[^>]*>)', r'\1• ', inner_html) + '</ul>'
+
+        # 处理有序列表 (ol)
+        def process_ol(match):
+            inner_html = match.group(2)
+            # 我们需要按顺序给每个 <li> 加上数字
+            return handle_ordered_list_items(match.group(1), inner_html)
+
+        # 递归处理所有 ul 和 ol
+        html_content = re.sub(r'<ul([^>]*)>([\s\S]*?)</ul>', process_ul, html_content)
+        html_content = re.sub(r'<ol([^>]*)>([\s\S]*?)ol>', process_ol, html_content)
+        return html_content
+
+    # 实现：有序列表序号生成逻辑
+    def handle_ordered_list_items(attrs, inner_html):
+        # 分割出所有的 li 块
+        # 这里使用正则分割，保留 <li> 标签本身
+        parts = re.split(r'(<li[^>]*>)', inner_html)
+        result = [parts[0]] # <li> 之前的空白
+
+        count = 1
+        # parts 的结构: [空白, <li...>, 内容, <li...>, 内容, ...]
+        for i in range(1, len(parts), 2):
+            tag = parts[i]
+            content = parts[i+1]
+            # 在 <li> 标签后直接注入 "1. ", "2. " 等序号
+            result.append(f"{tag}{count}. {content}")
+            count += 1
+
+        return f'<ol{attrs}>' + "".join(result) + '</ol>'
+
+    final_html = inject_list_markers(final_html)
+
     # Code Blocks (Pre + Code): 优化代码块样式
     # 不再统一替换 pre/code，而是依赖 Pygments 生成的高亮 HTML
     # 但 Pygments 生成的只是 <div class="highlight"><pre>...</pre></div>
