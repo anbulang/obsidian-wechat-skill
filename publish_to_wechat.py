@@ -936,8 +936,10 @@ def md_to_html(md_content):
     # 应用微信编辑器兼容性修复
     final_html = flatten_list_items(final_html)    # 移除 li 内的 p 标签
     final_html = compact_list_html(final_html)     # 移除列表标签间的空白
-    # 移除 </strong> 和冒号之间的所有空白及 <br> 标签
-    final_html = re.sub(r'</strong>\s*(<br\s*/?>)?\s*([：:])', r'</strong>\2', final_html)
+    # [关键修复] 将紧跟 </strong> 的冒号移入标签内部
+    # 原因：微信编辑器会在 </strong> 后自动换行，导致冒号被分离到下一行
+    # 解决：</strong>： → ：</strong>（把冒号纳入加粗范围内）
+    final_html = re.sub(r'</strong>\s*(<br\s*/?>)?\s*([：:])', r'\2</strong>', final_html)
     final_html = re.sub(r'>\s+<', '><', final_html)  # 整体 HTML 压缩（移除标签间换行）
 
     return final_html
