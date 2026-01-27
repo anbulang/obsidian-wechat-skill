@@ -781,45 +781,91 @@ def md_to_html(md_content):
     final_html = final_html.replace('<ol>', f'<ol {LIST_CONTAINER_STYLE}>')
     final_html = final_html.replace('<li>', f'<li {LIST_ITEM_STYLE}>')
 
-    # [新增] 手动注入列表符号
+    # [新增] 手动注入列表符号 (支持嵌套与去P标签)
     def inject_list_markers(html_content):
-        """为禁用默认样式的列表手动添加符号"""
+        """为禁用默认样式的列表手动添加符号，并处理嵌套层级"""
 
-        # 处理无序列表 (ul)
-        def process_ul(match):
+        # 辅助函数：移除 li 内部的 p 标签
+        def unwrap_p_in_li(li_content):
+            # TODO: 实现核心逻辑
+            # 目标：将 <li><p>内容</p></li> 转换为 <li>内容</li>
+            # 提示：使用 re.sub 移除 <p...> 和 </p>，但要保留内容
+            # 注意处理 p 标签可能带有的属性 (如 style)
+
+            # 你的实现：
+            # 1. 移除 <p...> 开始标签
+            content = re.sub(r'<p[^>]*>', '', li_content)
+            # 2. 移除 </p> 结束标签
+            content = content.replace('</p>', '')
+            return content
+
+        # 处理无序列表 (ul) - 增加 level 参数控制层级
+        def process_ul(match, level=0):
+            attrs = match.group(1)
             inner_html = match.group(2)
-            # 在每个 <li> 的内容开头加上 •
-            # 注意：我们要确保只在 li 标签后紧接着插入，不破坏内部结构
-            return f'<ul{match.group(1)}>' + re.sub(r'(<li[^>]*>)', r'\1• ', inner_html) + '</ul>'
+
+            # 根据层级选择符号：0=实心点(•), 1=空心点(◦), 2=方块(▪)
+            marker = '◦' if level % 2 == 1 else '•'
+
+            # 递归处理嵌套的 ul/ol
+            # 注意：先处理内部嵌套，防止正则匹配错乱
+            inner_html = re.sub(r'<ul([^>]*)>([\s\S]*?)</ul>', lambda m: process_ul(m, level + 1), inner_html)
+            inner_html = re.sub(r'<ol([^>]*)>([\s\S]*?)</ol>', lambda m: process_ol(m, level + 1), inner_html)
+
+            # 注入符号
+            def inject_bullet(m):
+                # 先移除 p 标签，解决换行问题
+                content = unwrap_p_in_li(m.group(0))
+                # 重新构建 li，在内容前加符号
+                # 使用 re.sub 替换 li 的开启标签，追加符号
+                return re.sub(r'(<li[^>]*>)', fr'\1{marker} ', content)
+
+            # 处理所有直接子 li
+            # 这里的正则需要小心，不要匹配到嵌套列表内的 li
+            # 但由于我们已经递归处理了内部列表，它们已经被转换过了，风险较小
+            # 更稳妥的方式是分段处理，但这里我们简化处理，假设嵌套列表是完整的块
+            inner_html = re.sub(r'<li[^>]*>[\s\S]*?</li>', inject_bullet, inner_html)
+
+            return f'<ul{attrs}>{inner_html}</ul>'
 
         # 处理有序列表 (ol)
-        def process_ol(match):
+        def process_ol(match, level=0):
+            attrs = match.group(1)
             inner_html = match.group(2)
-            # 我们需要按顺序给每个 <li> 加上数字
-            return handle_ordered_list_items(match.group(1), inner_html)
 
-        # 递归处理所有 ul 和 ol
-        html_content = re.sub(r'<ul([^>]*)>([\s\S]*?)</ul>', process_ul, html_content)
-        html_content = re.sub(r'<ol([^>]*)>([\s\S]*?)ol>', process_ol, html_content)
+            # 递归处理嵌套
+            inner_html = re.sub(r'<ul([^>]*)>([\s\S]*?)</ul>', lambda m: process_ul(m, level + 1), inner_html)
+            inner_html = re.sub(r'<ol([^>]*)>([\s\S]*?)</ol>', lambda m: process_ol(m, level + 1), inner_html)
+
+            # 分割并注入序号
+            parts = re.split(r'(<li[^>]*>)', inner_html)
+            result = [parts[0]]
+            count = 1
+
+            for i in range(1, len(parts), 2):
+                tag = parts[i]
+                # 移除 p 标签
+                content = unwrap_p_in_li(parts[i+1])
+                # 简单判断是否是闭合的 li (避免处理纯空白)
+                if '</li>' in content:
+                     result.append(f"{tag}{count}. {content}")
+                     count += 1
+                else:
+                     result.append(f"{tag}{content}")
+
+            return f'<ol{attrs}>' + "".join(result) + '</ol>'
+
+        # 从最外层开始处理
+        # 这里的正则匹配最外层的列表可能比较困难，因为正则默认是贪婪的
+        # 我们采用从内向外的策略可能更安全？或者简单的多次 pass？
+        # 实际上，上面的递归逻辑已经在 process_ul/ol 内部实现了深度优先
+        # 我们只需要匹配顶层即可。为了简化，我们直接对整个文档做一次全量扫描
+        # 但要注意避免重复处理。
+
+        # 更好的策略：由于 html 结构复杂，我们保留原有的简单递归入口
+        html_content = re.sub(r'<ul([^>]*)>([\s\S]*?)</ul>', lambda m: process_ul(m, 0), html_content)
+        html_content = re.sub(r'<ol([^>]*)>([\s\S]*?)</ol>', lambda m: process_ol(m, 0), html_content)
         return html_content
-
-    # 实现：有序列表序号生成逻辑
-    def handle_ordered_list_items(attrs, inner_html):
-        # 分割出所有的 li 块
-        # 这里使用正则分割，保留 <li> 标签本身
-        parts = re.split(r'(<li[^>]*>)', inner_html)
-        result = [parts[0]] # <li> 之前的空白
-
-        count = 1
-        # parts 的结构: [空白, <li...>, 内容, <li...>, 内容, ...]
-        for i in range(1, len(parts), 2):
-            tag = parts[i]
-            content = parts[i+1]
-            # 在 <li> 标签后直接注入 "1. ", "2. " 等序号
-            result.append(f"{tag}{count}. {content}")
-            count += 1
-
-        return f'<ol{attrs}>' + "".join(result) + '</ol>'
 
     final_html = inject_list_markers(final_html)
 
@@ -883,13 +929,34 @@ def md_to_html(md_content):
 
     # 2. 给 Pygments 容器 (.highlight) 增加卡片样式
     # 使用浅灰色背景 #f6f8fa
-    highlight_container_style = 'background: #f6f8fa; border: 1px solid #e1e4e8; border-radius: 6px; padding: 16px; margin: 16px 0;'
+    # [优化] 增加 display: block 和 width 属性，确保背景色能正确填充
+    highlight_container_style = (
+        'background: #f6f8fa; '
+        'border: 1px solid #e1e4e8; '
+        'border-radius: 6px; '
+        'padding: 16px; '
+        'margin: 16px 0; '
+        'display: block; '
+        'width: auto; '
+        'overflow-x: auto;'
+    )
     final_html = final_html.replace('<div class="highlight">', f'<div class="highlight" style="{highlight_container_style}">')
 
     # 3. 给 pre 标签加样式 (消除默认 margin，字体设置)
     # 恢复背景色为透明，因为外层容器已经有了背景色
     # [修复] 使用正则替换所有 pre 标签（包括已带 style 的）
-    pre_style = 'margin: 0; line-height: 1.5; font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace; font-size: 13px; color: #333; white-space: pre; overflow-x: auto; border: none; padding: 0; background: transparent;'
+    pre_style = (
+        'margin: 0; '
+        'line-height: 1.6; '
+        'font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace; '
+        'font-size: 13px; '
+        'color: #333; '
+        'white-space: pre-wrap; '  # 改为 pre-wrap 允许长代码换行
+        'word-break: break-all; '
+        'border: none; '
+        'padding: 0; '
+        'background: transparent;'
+    )
 
     def fix_pre_style(match):
         """替换 pre 标签的 style，确保 white-space: pre 生效"""
