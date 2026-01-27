@@ -846,7 +846,8 @@ def md_to_html(md_content):
     # 此时我们需要手动加样式
     # 注意：Pygments 生成的 pre 里面通常直接是 span，没有 code 标签 (或者 formatter 设置不同)
     # 如果 markdown 解析器保留了 <pre><code> 结构且没被高亮处理：
-    fallback_pre_style = 'background: #f7f1e3; border: 1px solid #e6dec5; border-radius: 5px; padding: 15px; overflow-x: auto; margin: 15px 0; color: #333; font-family: Consolas, Monaco, monospace; font-size: 13px; line-height: 1.5;'
+    # 兜底样式使用与 highlight 容器统一的背景色 #f6f8fa
+    fallback_pre_style = 'background: #f6f8fa; border: 1px solid #e1e4e8; border-radius: 6px; padding: 16px; overflow-x: auto; margin: 16px 0; color: #333; font-family: Consolas, Monaco, monospace; font-size: 13px; line-height: 1.5;'
     final_html = final_html.replace('<pre><code>', f'<pre style="{fallback_pre_style}"><code>')
 
     # Inline Code: 优化行内代码样式
@@ -922,16 +923,21 @@ def md_to_html(md_content):
         # 3. 移除 </ul>/<ol> 前的空白
         html_content = re.sub(r'\s+(</[uo]l>)', r'\1', html_content)
 
-        # 4. 移除嵌套列表前后的空白
-        html_content = re.sub(r'</li>\s+<[uo]l', '</li><ul', html_content)
-        html_content = re.sub(r'</[uo]l>\s+</li>', '</ul></li>', html_content)
+        # 4. 移除嵌套列表前后的空白（同时处理 ul 和 ol）
+        html_content = re.sub(r'</li>\s+<([uo]l)', r'</li><\1', html_content)
+        html_content = re.sub(r'</([uo]l)>\s+</li>', r'</\1></li>', html_content)
+
+        # 5. [新增] 移除 <li> 内部的 <br> 标签（列表项内不需要换行）
+        html_content = re.sub(r'(<li[^>]*>)\s*<br\s*/?>', r'\1', html_content)
+        html_content = re.sub(r'<br\s*/?>\s*(</li>)', r'\1', html_content)
 
         return html_content
 
     # 应用微信编辑器兼容性修复
     final_html = flatten_list_items(final_html)    # 移除 li 内的 p 标签
     final_html = compact_list_html(final_html)     # 移除列表标签间的空白
-    final_html = re.sub(r'</strong>\s*([：:])', r'</strong>\1', final_html)  # strong 后冒号紧邻
+    # 移除 </strong> 和冒号之间的所有空白及 <br> 标签
+    final_html = re.sub(r'</strong>\s*(<br\s*/?>)?\s*([：:])', r'</strong>\2', final_html)
     final_html = re.sub(r'>\s+<', '><', final_html)  # 整体 HTML 压缩（移除标签间换行）
 
     return final_html
