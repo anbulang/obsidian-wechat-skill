@@ -751,14 +751,35 @@ def md_to_html(md_content):
     # Strong: 铁锈红字体
     final_html = final_html.replace('<strong>', '<strong style="color: #db4c3f; font-weight: bold;">')
 
-    # List Containers: 增加缩进，防止序号/列表点被吞
-    # 恢复缩进为 25px, 减少底部间距
-    list_style = 'style="margin-bottom: 10px; padding-left: 25px;"'
-    final_html = final_html.replace('<ul>', f'<ul {list_style}>')
-    final_html = final_html.replace('<ol>', f'<ol {list_style}>')
+    # List Containers & Items: 使用样板文件的标准列表样式
+    # 采用 list-style: none + 详细内联样式的标准化方案
+    LIST_CONTAINER_STYLE = (
+        'style="list-style: none; '
+        'margin: 0em 8px 1.5em; '
+        'padding: 0px; '
+        'text-align: left; '
+        'line-height: 1.75; '
+        "font-family: 'PingFang SC', -apple-system-font, BlinkMacSystemFont, 'Helvetica Neue', 'Hiragino Sans GB', 'Microsoft YaHei UI', 'Microsoft YaHei', Arial, sans-serif; "
+        'font-size: 15px; '
+        'color: rgb(63, 63, 63);'
+        '"'
+    )
 
-    # List Items: 保持默认黑色，调整间距
-    final_html = final_html.replace('<li>', '<li style="margin-bottom: 2px;">')
+    LIST_ITEM_STYLE = (
+        'style="margin: 0.5em 0px; '
+        'padding: 0px; '
+        'text-align: left; '
+        'line-height: 1.75; '
+        "font-family: 'PingFang SC', -apple-system-font, BlinkMacSystemFont, 'Helvetica Neue', 'Hiragino Sans GB', 'Microsoft YaHei UI', 'Microsoft YaHei', Arial, sans-serif; "
+        'font-size: 15px; '
+        'color: rgb(63, 63, 63);'
+        '"'
+    )
+
+    # 应用标准样式到所有列表元素
+    final_html = final_html.replace('<ul>', f'<ul {LIST_CONTAINER_STYLE}>')
+    final_html = final_html.replace('<ol>', f'<ol {LIST_CONTAINER_STYLE}>')
+    final_html = final_html.replace('<li>', f'<li {LIST_ITEM_STYLE}>')
 
     # Code Blocks (Pre + Code): 优化代码块样式
     # 不再统一替换 pre/code，而是依赖 Pygments 生成的高亮 HTML
@@ -897,72 +918,6 @@ def md_to_html(md_content):
         return html_content
 
     final_html = simplify_list_items(final_html)
-
-    # ==================== 微信编辑器兼容性处理 ====================
-    # 问题根源：微信编辑器（非预览模式）会将 HTML 中的换行符当作列表项分隔符
-    # 导致 </li>\n<li> 之间的换行被解析为空列表项
-
-    def flatten_list_items(html_content):
-        """移除 li 内的 p 标签，保留内容（避免微信编辑器分割问题）"""
-        # <li style="..."><p style="...">内容</p></li> → <li style="...">内容</li>
-        html_content = re.sub(
-            r'<li([^>]*)>\s*<p[^>]*>([\s\S]*?)</p>\s*</li>',
-            r'<li\1>\2</li>',
-            html_content
-        )
-        return html_content
-
-    def compact_list_html(html_content):
-        """生成紧凑的列表 HTML，避免微信编辑器将换行当作空项"""
-        # 1. 移除 </li> 后到下一个 <li> 之间的所有空白
-        html_content = re.sub(r'</li>\s+<li', '</li><li', html_content)
-
-        # 2. 移除 <ul>/<ol> 开始标签后的空白
-        html_content = re.sub(r'(<[uo]l[^>]*>)\s+', r'\1', html_content)
-
-        # 3. 移除 </ul>/<ol> 前的空白
-        html_content = re.sub(r'\s+(</[uo]l>)', r'\1', html_content)
-
-        # 4. 移除嵌套列表前后的空白（同时处理 ul 和 ol）
-        html_content = re.sub(r'</li>\s+<([uo]l)', r'</li><\1', html_content)
-        html_content = re.sub(r'</([uo]l)>\s+</li>', r'</\1></li>', html_content)
-
-        # 5. [新增] 移除 <li> 内部的 <br> 标签（列表项内不需要换行）
-        html_content = re.sub(r'(<li[^>]*>)\s*<br\s*/?>', r'\1', html_content)
-        html_content = re.sub(r'<br\s*/?>\s*(</li>)', r'\1', html_content)
-
-        return html_content
-
-    # 应用微信编辑器兼容性修复
-    final_html = flatten_list_items(final_html)    # 移除 li 内的 p 标签
-    final_html = compact_list_html(final_html)     # 移除列表标签间的空白
-
-    # [新增修复] 将 <li> 内紧跟 </strong> 的 <section> 转换为 <span>
-    # 原因：<section> 默认是 display:block，会导致 <strong>策略：</strong><section>...</section> 换行
-    # 解决：将 <section> 替换为 <span>（内联元素）
-
-    # [新修复策略] 在列表项中，将 </strong> 后的内容包裹在 <span> 中
-    # 原因：微信编辑器会自动将 </strong> 后的裸文本包裹在 <section> 中（块级元素，导致换行）
-    # 解决：主动用 <span>（内联元素）包裹内容，防止微信添加 <section>
-    # 匹配模式：<li...><strong>...：</strong>后续内容</li>
-    # 替换为：<li...><strong>...：</strong><span>后续内容</span></li>
-    def wrap_li_content_after_strong(html):
-        # 正则：匹配 li 内部 </strong> 后到 </li> 之间的内容
-        pattern = r'(<li[^>]*>.*?</strong>)(.*?)(</li>)'
-
-        def replacer(m):
-            before_strong = m.group(1)  # <li...>...</strong>
-            content = m.group(2)         # </strong> 和 </li> 之间的内容
-            after_li = m.group(3)        # </li>
-
-            # 如果已经有标签包裹（如已有span或其他），不处理
-            if content.strip() and not content.strip().startswith('<'):
-                return f'{before_strong}<span>{content}</span>{after_li}'
-            return m.group(0)  # 保持原样
-
-        return re.sub(pattern, replacer, html, flags=re.DOTALL)
-
-    final_html = wrap_li_content_after_strong(final_html)
 
     # [关键修复] 将紧跟 </strong> 的冒号移入标签内部
     # 原因：微信编辑器会在 </strong> 后自动换行，导致冒号被分离到下一行
