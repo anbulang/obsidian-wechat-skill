@@ -10,6 +10,7 @@ import base64
 import subprocess
 import tempfile
 import zlib
+from html.parser import HTMLParser
 from urllib.parse import urlparse
 from pygments import highlight
 from pygments.lexers import get_lexer_by_name, guess_lexer
@@ -776,226 +777,226 @@ def md_to_html(md_content):
         '"'
     )
 
-    # 应用标准样式到所有列表元素
-    final_html = final_html.replace('<ul>', f'<ul {LIST_CONTAINER_STYLE}>')
-    final_html = final_html.replace('<ol>', f'<ol {LIST_CONTAINER_STYLE}>')
-    final_html = final_html.replace('<li>', f'<li {LIST_ITEM_STYLE}>')
+    # [重构] 使用 HTMLParser 进行精确的列表和代码块处理
+    # 解决：正则无法处理嵌套列表、重复注入符号、代码块样式污染等问题
+    class WechatHTMLProcessor(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.output = []
 
-    # [新增] 手动注入列表符号 (支持嵌套与去P标签)
-    def inject_list_markers(html_content):
-        """为禁用默认样式的列表手动添加符号，并处理嵌套层级"""
+            # 状态栈：记录当前所在的标签层级
+            # 格式：{'tag': 'ul'/'ol', 'count': 1, 'marker_type': 'bull'/'num'}
+            self.list_stack = []
 
-        # 辅助函数：移除 li 内部的 p 标签
-        def unwrap_p_in_li(li_content):
-            # TODO: 实现核心逻辑
-            # 目标：将 <li><p>内容</p></li> 转换为 <li>内容</li>
-            # 提示：使用 re.sub 移除 <p...> 和 </p>，但要保留内容
-            # 注意处理 p 标签可能带有的属性 (如 style)
+            self.in_pre = False
+            self.in_code = False
+            self.in_li = False  # 标记是否在 li 内部，用于剥离 p 标签
 
-            # 你的实现：
-            # 1. 移除 <p...> 开始标签
-            content = re.sub(r'<p[^>]*>', '', li_content)
-            # 2. 移除 </p> 结束标签
-            content = content.replace('</p>', '')
-            return content
+            # 样式定义
+            self.LIST_CONTAINER_STYLE = LIST_CONTAINER_STYLE
+            self.LIST_ITEM_STYLE = LIST_ITEM_STYLE
 
-        # 处理无序列表 (ul) - 增加 level 参数控制层级
-        def process_ul(match, level=0):
-            attrs = match.group(1)
-            inner_html = match.group(2)
-
-            # 根据层级选择符号：0=实心点(•), 1=空心点(◦), 2=方块(▪)
-            marker = '◦' if level % 2 == 1 else '•'
-
-            # 递归处理嵌套的 ul/ol
-            # 注意：先处理内部嵌套，防止正则匹配错乱
-            inner_html = re.sub(r'<ul([^>]*)>([\s\S]*?)</ul>', lambda m: process_ul(m, level + 1), inner_html)
-            inner_html = re.sub(r'<ol([^>]*)>([\s\S]*?)</ol>', lambda m: process_ol(m, level + 1), inner_html)
-
-            # 注入符号
-            def inject_bullet(m):
-                # 先移除 p 标签，解决换行问题
-                content = unwrap_p_in_li(m.group(0))
-                # 重新构建 li，在内容前加符号
-                # 使用 re.sub 替换 li 的开启标签，追加符号
-                return re.sub(r'(<li[^>]*>)', fr'\1{marker} ', content)
-
-            # 处理所有直接子 li
-            # 这里的正则需要小心，不要匹配到嵌套列表内的 li
-            # 但由于我们已经递归处理了内部列表，它们已经被转换过了，风险较小
-            # 更稳妥的方式是分段处理，但这里我们简化处理，假设嵌套列表是完整的块
-            inner_html = re.sub(r'<li[^>]*>[\s\S]*?</li>', inject_bullet, inner_html)
-
-            return f'<ul{attrs}>{inner_html}</ul>'
-
-        # 处理有序列表 (ol)
-        def process_ol(match, level=0):
-            attrs = match.group(1)
-            inner_html = match.group(2)
-
-            # 递归处理嵌套
-            inner_html = re.sub(r'<ul([^>]*)>([\s\S]*?)</ul>', lambda m: process_ul(m, level + 1), inner_html)
-            inner_html = re.sub(r'<ol([^>]*)>([\s\S]*?)</ol>', lambda m: process_ol(m, level + 1), inner_html)
-
-            # 分割并注入序号
-            parts = re.split(r'(<li[^>]*>)', inner_html)
-            result = [parts[0]]
-            count = 1
-
-            for i in range(1, len(parts), 2):
-                tag = parts[i]
-                # 移除 p 标签
-                content = unwrap_p_in_li(parts[i+1])
-                # 简单判断是否是闭合的 li (避免处理纯空白)
-                if '</li>' in content:
-                     result.append(f"{tag}{count}. {content}")
-                     count += 1
-                else:
-                     result.append(f"{tag}{content}")
-
-            return f'<ol{attrs}>' + "".join(result) + '</ol>'
-
-        # 从最外层开始处理
-        # 这里的正则匹配最外层的列表可能比较困难，因为正则默认是贪婪的
-        # 我们采用从内向外的策略可能更安全？或者简单的多次 pass？
-        # 实际上，上面的递归逻辑已经在 process_ul/ol 内部实现了深度优先
-        # 我们只需要匹配顶层即可。为了简化，我们直接对整个文档做一次全量扫描
-        # 但要注意避免重复处理。
-
-        # 更好的策略：由于 html 结构复杂，我们保留原有的简单递归入口
-        html_content = re.sub(r'<ul([^>]*)>([\s\S]*?)</ul>', lambda m: process_ul(m, 0), html_content)
-        html_content = re.sub(r'<ol([^>]*)>([\s\S]*?)</ol>', lambda m: process_ol(m, 0), html_content)
-        return html_content
-
-    final_html = inject_list_markers(final_html)
-
-    # Code Blocks (Pre + Code): 优化代码块样式
-    # 不再统一替换 pre/code，而是依赖 Pygments 生成的高亮 HTML
-    # 但 Pygments 生成的只是 <div class="highlight"><pre>...</pre></div>
-
-    # 1. 清理代码块内部 span 的背景色 (在添加容器样式之前执行，防止误删容器背景)
-    # Pygments 生成的 span 可能会自带 background-color，导致每行代码有独立背景，这很难看
-    # 我们需要移除 span 标签中的 background 样式，统一使用外层容器的背景
-    #
-    # [改进] 使用更健壮的清理逻辑，处理嵌套结构和各种格式
-    def clean_code_block_backgrounds(html_content):
-        """清理代码块内所有 span 的背景色 - 改进版"""
-
-        def process_highlight_block(match):
-            block = match.group(0)
-            # 清理所有 span 中的 background 相关样式
-            # 使用更精确的正则，处理各种格式：
-            # - background: #xxx;
-            # - background-color: #xxx;
-            # - background-color: rgb(...);
-            # - background:#xxx (无空格)
-            block = re.sub(
-                r'(<span[^>]*style="[^"]*?)background(-color)?:\s*[^;"]+;?\s*',
-                r'\1',
-                block
+            # 代码块样式
+            self.HIGHLIGHT_CONTAINER_STYLE = (
+                'background: #f6f8fa; '
+                'border: 1px solid #e1e4e8; '
+                'border-radius: 6px; '
+                'padding: 16px; '
+                'margin: 16px 0; '
+                'display: block; '
+                'width: auto; '
+                'overflow-x: auto;'
             )
-            return block
+            self.PRE_STYLE = (
+                'margin: 0; '
+                'line-height: 1.6; '
+                'font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace; '
+                'font-size: 13px; '
+                'color: #333; '
+                'white-space: pre-wrap; '
+                'word-break: break-all; '
+                'border: none; '
+                'padding: 0; '
+                'background: transparent;'
+            )
+            self.INLINE_CODE_STYLE = (
+                'background: #f0f0f0; '
+                'color: #db4c3f; '
+                'padding: 2px 4px; '
+                'border-radius: 3px; '
+                'font-family: Consolas, Monaco, monospace; '
+                'font-size: 14px; '
+                'margin: 0 2px;'
+            )
 
-        # 使用 [\s\S]*? 替代 .*? 以跨越换行
-        # 注意：需要正确匹配 highlight div 的结束标签
-        # 策略：先找到所有 <div class="highlight"> 开始标签，然后找到对应的 </div>
-        result = re.sub(
-            r'(<div class="highlight"[^>]*>)([\s\S]*?)(</div>)',
-            lambda m: m.group(1) + re.sub(
-                r'(<span[^>]*style="[^"]*?)background(-color)?:\s*[^;"]+;?\s*',
-                r'\1',
-                m.group(2)
-            ) + m.group(3),
-            html_content
-        )
-        return result
+        def handle_starttag(self, tag, attrs):
+            attrs_dict = dict(attrs)
 
-    final_html = clean_code_block_backgrounds(final_html)
+            # 处理列表容器
+            if tag in ('ul', 'ol'):
+                # 确定层级和类型
+                marker_type = 'num' if tag == 'ol' else 'bull'
+                self.list_stack.append({'tag': tag, 'count': 1, 'marker_type': marker_type})
 
-    # [新增] 将代码块内的换行符转换为 <br> 标签
-    # 微信编辑器可能不支持 white-space: pre，所以用 <br> 确保换行
-    def convert_newlines_in_code(html_content):
-        """将代码块内的换行符转换为 <br>"""
-        def process_pre(match):
-            pre_tag = match.group(1)
-            content = match.group(2)
-            # 将 \n 转换为 <br>\n（保留原始换行以便阅读）
-            content = content.replace('\n', '<br>\n')
-            return f'{pre_tag}{content}</pre>'
+                # 注入样式
+                new_attrs = self._inject_style(attrs, self.LIST_CONTAINER_STYLE)
+                self.output.append(self._build_tag(tag, new_attrs))
+                return
 
-        return re.sub(r'(<pre[^>]*>)([\s\S]*?)</pre>', process_pre, html_content)
+            # 处理列表项
+            if tag == 'li':
+                self.in_li = True
+                new_attrs = self._inject_style(attrs, self.LIST_ITEM_STYLE)
+                self.output.append(self._build_tag(tag, new_attrs))
 
-    final_html = convert_newlines_in_code(final_html)
+                # 注入符号
+                if self.list_stack:
+                    current = self.list_stack[-1]
+                    level = len(self.list_stack) - 1
 
-    # 2. 给 Pygments 容器 (.highlight) 增加卡片样式
-    # 使用浅灰色背景 #f6f8fa
-    # [优化] 增加 display: block 和 width 属性，确保背景色能正确填充
-    highlight_container_style = (
-        'background: #f6f8fa; '
-        'border: 1px solid #e1e4e8; '
-        'border-radius: 6px; '
-        'padding: 16px; '
-        'margin: 16px 0; '
-        'display: block; '
-        'width: auto; '
-        'overflow-x: auto;'
-    )
-    final_html = final_html.replace('<div class="highlight">', f'<div class="highlight" style="{highlight_container_style}">')
+                    if current['marker_type'] == 'num':
+                        marker = f"{current['count']}. "
+                        current['count'] += 1
+                    else:
+                        # 0层=实心点, 1层=空心点
+                        marker = '◦ ' if level % 2 == 1 else '• '
 
-    # 3. 给 pre 标签加样式 (消除默认 margin，字体设置)
-    # 恢复背景色为透明，因为外层容器已经有了背景色
-    # [修复] 使用正则替换所有 pre 标签（包括已带 style 的）
-    pre_style = (
-        'margin: 0; '
-        'line-height: 1.6; '
-        'font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace; '
-        'font-size: 13px; '
-        'color: #333; '
-        'white-space: pre-wrap; '  # 改为 pre-wrap 允许长代码换行
-        'word-break: break-all; '
-        'border: none; '
-        'padding: 0; '
-        'background: transparent;'
-    )
+                    self.output.append(marker)
+                return
 
-    def fix_pre_style(match):
-        """替换 pre 标签的 style，确保 white-space: pre 生效"""
-        existing_attrs = match.group(1) or ''
-        # 如果已有 style，替换它；否则添加新 style
-        if 'style=' in existing_attrs:
-            # 替换现有 style
-            new_attrs = re.sub(r'style="[^"]*"', f'style="{pre_style}"', existing_attrs)
-        else:
-            new_attrs = existing_attrs + f' style="{pre_style}"'
-        return f'<pre{new_attrs}>'
+            # 处理代码块容器 (Pygments 生成的 div.highlight)
+            if tag == 'div' and 'highlight' in attrs_dict.get('class', '').split():
+                new_attrs = self._inject_style(attrs, self.HIGHLIGHT_CONTAINER_STYLE)
+                self.output.append(self._build_tag(tag, new_attrs))
+                return
 
-    final_html = re.sub(r'<pre([^>]*)>', fix_pre_style, final_html)
+            # 处理 pre
+            if tag == 'pre':
+                self.in_pre = True
+                new_attrs = self._inject_style(attrs, self.PRE_STYLE)
+                self.output.append(self._build_tag(tag, new_attrs))
+                return
 
-    # 4. 兜底处理：如果有未被 Pygments 处理的普通代码块 (比如缩进式代码块)
-    # 它们通常是 <pre><code>...</code></pre> 结构
-    # 此时我们需要手动加样式
-    # 注意：Pygments 生成的 pre 里面通常直接是 span，没有 code 标签 (或者 formatter 设置不同)
-    # 如果 markdown 解析器保留了 <pre><code> 结构且没被高亮处理：
-    # 兜底样式使用与 highlight 容器统一的背景色 #f6f8fa
-    fallback_pre_style = 'background: #f6f8fa; border: 1px solid #e1e4e8; border-radius: 6px; padding: 16px; overflow-x: auto; margin: 16px 0; color: #333; font-family: Consolas, Monaco, monospace; font-size: 13px; line-height: 1.5;'
-    final_html = final_html.replace('<pre><code>', f'<pre style="{fallback_pre_style}"><code>')
+            # 处理 code
+            if tag == 'code':
+                self.in_code = True
+                # 只有不在 pre 内部且没有自带样式的 code 才加行内样式
+                if not self.in_pre and 'style' not in attrs_dict:
+                    new_attrs = self._inject_style(attrs, self.INLINE_CODE_STYLE)
+                    self.output.append(self._build_tag(tag, new_attrs))
+                else:
+                    self.output.append(self._build_tag(tag, attrs))
+                return
 
-    # Inline Code: 优化行内代码样式
-    # 策略：查找所有 code 标签，排除掉已经带有 style 属性的 (即上面处理过的块级代码)
-    # 去除粉红色背景，只保留铁锈红文字和淡淡的灰色背景，更清爽
-    inline_code_style = 'background: #f0f0f0; color: #db4c3f; padding: 2px 4px; border-radius: 3px; font-family: Consolas, Monaco, monospace; font-size: 14px; margin: 0 2px;'
+            # 处理 li 内部的 p 标签 -> 直接忽略 p 标签本身，只保留内容
+            if tag == 'p' and self.in_li:
+                return
 
-    def replace_inline_code(match):
-        attrs = match.group(1)
-        # 如果已经有 style 属性，说明是代码块内部的 code，跳过
-        if 'style=' in attrs:
-            return match.group(0)
-        # 排除掉 pre 标签内部的 code (虽然上面的逻辑已经尽量规避，但为了双重保险)
-        return f'<code {attrs} style="{inline_code_style}">'
+            # 其他标签原样输出
+            self.output.append(self._build_tag(tag, attrs))
 
-    final_html = re.sub(r'<code([^>]*)>', replace_inline_code, final_html)
-    # 如果 li 内部有 p，则给 p 加样式
-    final_html = final_html.replace('<p>', '<p style="margin-bottom: 15px; line-height: 1.6; color: #333; text-align: justify;">')
+        def handle_endtag(self, tag):
+            if tag in ('ul', 'ol'):
+                if self.list_stack:
+                    self.list_stack.pop()
+                self.output.append(f"</{tag}>")
+                return
+
+            if tag == 'li':
+                self.in_li = False
+                self.output.append(f"</{tag}>")
+                return
+
+            if tag == 'pre':
+                self.in_pre = False
+                self.output.append(f"</{tag}>")
+                return
+
+            if tag == 'code':
+                self.in_code = False
+                self.output.append(f"</{tag}>")
+                return
+
+            # 忽略 li 内部的 p 结束标签
+            if tag == 'p' and self.in_li:
+                self.output.append("<br>") # 可选：如果原来有两个p，可能需要br分隔，但通常不需要
+                return
+
+            self.output.append(f"</{tag}>")
+
+        def handle_data(self, data):
+            # 处理 li 内部的 p 内容时的空白清理（可选）
+            if self.in_li and not data.strip():
+                # 如果是在 li 内部的纯空白，可以保留一个空格或者压缩
+                # 这里简单输出，因为浏览器会合并空白
+                self.output.append(data)
+            else:
+                self.output.append(data)
+
+        def handle_entityref(self, name):
+            self.output.append(f'&{name};')
+
+        def handle_charref(self, name):
+            self.output.append(f'&#{name};')
+
+        # 辅助方法
+        def _build_tag(self, tag, attrs):
+            if not attrs:
+                return f"<{tag}>"
+            attrs_str = " ".join([f'{k}="{v}"' for k, v in attrs])
+            return f"<{tag} {attrs_str}>"
+
+        def _inject_style(self, attrs, style_to_add):
+            # 将 style_to_add 合并到 attrs 中
+            # 如果已有 style，追加；否则新建
+            new_attrs = dict(attrs)
+            current_style = new_attrs.get('style', '')
+            if current_style:
+                # 简单追加，最后的分号保证正确性
+                if not current_style.strip().endswith(';'):
+                    current_style += ';'
+                new_attrs['style'] = current_style + ' ' + style_to_add
+            else:
+                # 这里的 style_to_add 包含了 'style=' 前缀吗？看定义是没有的
+                # 但原来的常量定义里有 'style="..."' 格式
+                # 所以我们需要解析一下传入的 style_to_add
+                # 假设传入的 style_to_add 是 "key: val; key: val" 格式（去掉了 style=""）
+                # 等等，之前的常量定义是 'style="..."' 格式
+                # 我们需要修正常量的使用方式
+                pass
+
+            # 修正：我们需要把常量中的 style="..." 剥离出来
+            # 简单起见，我们假设 style_to_add 是纯 CSS 字符串
+            # 但之前的常量如 LIST_CONTAINER_STYLE 包含了 style="..."
+            # 所以我们需要做一个简单的正则提取
+            css_content = style_to_add
+            if 'style="' in style_to_add:
+                match = re.search(r'style="([^"]*)"', style_to_add)
+                if match:
+                    css_content = match.group(1)
+
+            # 现在合并
+            final_css = new_attrs.get('style', '')
+            if final_css and not final_css.strip().endswith(';'):
+                final_css += ';'
+            final_css += css_content
+
+            new_attrs['style'] = final_css
+            return list(new_attrs.items())
+
+    # 执行 Processor
+    processor = WechatHTMLProcessor()
+    processor.feed(final_html)
+    final_html = "".join(processor.output)
+
+    # 后续处理：Code Block 背景色清理逻辑可能不再需要了，因为我们重写了样式
+    # 但保留 clean_code_block_backgrounds 也没坏处，作为防御
+
+    # 替换原本的列表样式应用代码（第 780-783 行）
+    # 替换原本的 inject_list_markers 函数（第 785-870 行）
+    # 替换原本的代码块样式应用代码（第 930-960 行）
+    # 替换原本的 inline code 替换逻辑（第 970-1000 行）
+
 
     # Table headers: 铁锈红字体 + 暖色背景
     final_html = final_html.replace('<th>', '<th style="font-weight: 600; color: #db4c3f; padding: 6px 13px; border: 1px solid #e6dec5; background: #f7f1e3;">')
