@@ -936,6 +936,34 @@ def md_to_html(md_content):
     # 应用微信编辑器兼容性修复
     final_html = flatten_list_items(final_html)    # 移除 li 内的 p 标签
     final_html = compact_list_html(final_html)     # 移除列表标签间的空白
+
+    # [新增修复] 将 <li> 内紧跟 </strong> 的 <section> 转换为 <span>
+    # 原因：<section> 默认是 display:block，会导致 <strong>策略：</strong><section>...</section> 换行
+    # 解决：将 <section> 替换为 <span>（内联元素）
+
+    # [新修复策略] 在列表项中，将 </strong> 后的内容包裹在 <span> 中
+    # 原因：微信编辑器会自动将 </strong> 后的裸文本包裹在 <section> 中（块级元素，导致换行）
+    # 解决：主动用 <span>（内联元素）包裹内容，防止微信添加 <section>
+    # 匹配模式：<li...><strong>...：</strong>后续内容</li>
+    # 替换为：<li...><strong>...：</strong><span>后续内容</span></li>
+    def wrap_li_content_after_strong(html):
+        # 正则：匹配 li 内部 </strong> 后到 </li> 之间的内容
+        pattern = r'(<li[^>]*>.*?</strong>)(.*?)(</li>)'
+
+        def replacer(m):
+            before_strong = m.group(1)  # <li...>...</strong>
+            content = m.group(2)         # </strong> 和 </li> 之间的内容
+            after_li = m.group(3)        # </li>
+
+            # 如果已经有标签包裹（如已有span或其他），不处理
+            if content.strip() and not content.strip().startswith('<'):
+                return f'{before_strong}<span>{content}</span>{after_li}'
+            return m.group(0)  # 保持原样
+
+        return re.sub(pattern, replacer, html, flags=re.DOTALL)
+
+    final_html = wrap_li_content_after_strong(final_html)
+
     # [关键修复] 将紧跟 </strong> 的冒号移入标签内部
     # 原因：微信编辑器会在 </strong> 后自动换行，导致冒号被分离到下一行
     # 解决：</strong>： → ：</strong>（把冒号纳入加粗范围内）
