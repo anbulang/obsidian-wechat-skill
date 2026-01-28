@@ -1033,7 +1033,29 @@ def md_to_html(md_content):
     # 原因：微信编辑器会在 </strong> 后自动换行，导致冒号被分离到下一行
     # 解决：</strong>： → ：</strong>（把冒号纳入加粗范围内）
     final_html = re.sub(r'</strong>\s*(<br\s*/?>)?\s*([：:])', r'\2</strong>', final_html)
-    final_html = re.sub(r'>\s+<', '><', final_html)  # 整体 HTML 压缩（移除标签间换行）
+
+    # [修复] HTML 压缩：移除标签间换行，但保护 <pre> 内的换行
+    # 问题：之前的 re.sub(r'>\s+<', '><', html) 会破坏代码块内的换行
+    # 策略：先提取所有 pre 块，用占位符替代，压缩后再还原
+    def compress_html_preserve_pre(html):
+        pre_blocks = []
+        def save_pre(m):
+            pre_blocks.append(m.group(0))
+            return f'__PRE_PLACEHOLDER_{len(pre_blocks) - 1}__'
+
+        # 提取所有 <pre>...</pre> 块（包括带属性的）
+        html = re.sub(r'<pre[^>]*>[\s\S]*?</pre>', save_pre, html)
+
+        # 压缩标签间空白
+        html = re.sub(r'>\s+<', '><', html)
+
+        # 还原 pre 块
+        for i, block in enumerate(pre_blocks):
+            html = html.replace(f'__PRE_PLACEHOLDER_{i}__', block)
+
+        return html
+
+    final_html = compress_html_preserve_pre(final_html)
 
     return final_html
 
