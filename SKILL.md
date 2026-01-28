@@ -107,8 +107,8 @@ def hello():
   <section style="background: #21252b; padding: 8px 16px;">
     <span style="color: #9da5b4; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;">Python</span>
   </section>
-  <pre style="margin: 0; background: #282c34; padding: 16px; overflow-x: auto;"><code style="font-family: Consolas, 'SF Mono', monospace; font-size: 14px; line-height: 1.6; color: #abb2bf;"><span style="display: block;"><span style="display: inline-block; width: 32px; color: #636d83; text-align: right; margin-right: 16px; user-select: none;">1</span>def hello():</span>
-<span style="display: block;"><span style="display: inline-block; width: 32px; color: #636d83; text-align: right; margin-right: 16px; user-select: none;">2</span>    print("Hello, World!")</span></code></pre>
+  <pre style="margin: 0; background: #282c34; padding: 16px; overflow-x: auto;"><code style="font-family: Consolas, 'SF Mono', monospace; font-size: 14px; line-height: 1.6; color: #abb2bf;"><div><span style="display: inline-block; width: 32px; color: #636d83; text-align: right; margin-right: 16px;">1</span>def hello():</div>
+<div><span style="display: inline-block; width: 32px; color: #636d83; text-align: right; margin-right: 16px;">2</span>    print("Hello, World!")</div></code></pre>
 </section>
 ```
 
