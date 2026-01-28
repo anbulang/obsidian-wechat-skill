@@ -855,17 +855,11 @@ def md_to_html(md_content):
                     level = len(self.list_stack) - 1
 
                     if current['marker_type'] == 'num':
-                        # 序号保持原样，或可加个 span 微调颜色
                         marker = f"{current['count']}. "
                         current['count'] += 1
                     else:
-                        # 0层=实心点(默认颜色), 1层=空心点(灰色)
-                        if level % 2 == 1:
-                            # 灰色空心圆点
-                            marker = '<span style="color: #a0a0a0;">◦</span> '
-                        else:
-                            # 默认实心点
-                            marker = '• '
+                        # 0层=实心点, 1层=空心点
+                        marker = '◦ ' if level % 2 == 1 else '• '
 
                     self.output.append(marker)
                 return
@@ -879,62 +873,6 @@ def md_to_html(md_content):
             # 处理 pre
             if tag == 'pre':
                 self.in_pre = True
-
-                # [关键优化] 检查父级是否已经是 highlight div
-                # 我们的解析器很简单，没有完整的父级链检查，但可以根据上下文判断
-                # 简单策略：如果当前不是 code block 的一部分（通常 markdown生成的 pre 都是独立的）
-                # 我们给 pre 加上背景框样式（兜底策略）
-                # 注意：Pygments 生成的结构是 <div class="highlight"><pre>...
-                # 我们之前已经给 div.highlight 加了背景，所以内部的 pre 不需要再加背景
-                # 但如果是普通的 <pre><code>，则需要加背景
-
-                # 由于 SAX 模式下难以回溯父级，我们采用样式合并策略：
-                # 如果是 Pygments，外层 div 已经有了样式，这里 pre 设置 background: transparent (已在 PRE_STYLE 中定义)
-                # 如果是普通 pre，我们需要给它加上容器样式
-                # 为了区分，我们可以检查 class 或者 style，或者简单粗暴地统一处理：
-                # 统一给 PRE 加背景？不行，那样 Pygments 会有双重背景（div 一层，pre 一层）
-
-                # 更好的策略：
-                # 我们的 PRE_STYLE 默认是 transparent。
-                # 如果我们能检测到这是个"孤儿" pre (没有 highlight 父级)，就给它加背景。
-                # 但流式解析做不到。
-
-                # 替代方案：直接给 PRE_STYLE 加上背景色？
-                # 如果外层 div 也有背景色，两层一样的颜色叠加看不出来，除了 padding 可能叠加。
-                # 让我们试试直接给 pre 加背景和圆角，去掉 div.highlight 的背景？
-                # 不行，Pygments 的 div.highlight 作用范围更广。
-
-                # 这种情况下，我们假设大多数代码块都是 Pygments 处理过的。
-                # 如果是漏网之鱼，我们可以通过后处理（re.sub）来补救，或者在这里强行加样式。
-
-                # 让我们采用一个折中方案：保留 PRE_STYLE 的 transparent，
-                # 但在 handle_endtag 之后，如果我们发现输出的 html 只有 pre 没有 div 包裹... 这也难。
-
-                # 让我们回到最开始的观察：用户说"代码块没有格式化"。
-                # 这通常意味着 Pygments 没有工作（未指定语言），生成的仅仅是 <pre><code>...</code></pre>
-                # 对于这种情况，最简单的办法是：在 _inject_style 时，检查是否已有 container 样式。
-
-                # 实际上，我们可以给 PRE_STYLE 加上必要的容器样式（背景、圆角），
-                # 然后把 Pygments 容器的 padding/background 去掉？
-                # 或者，我们可以利用 CSS 的特性：
-                # 让 div.highlight 负责背景，
-                # 让 pre 也负责背景（如果是独立的）。
-
-                # 决定：给 PRE_STYLE 加上背景色和边框。
-                # 对于 Pygments 的嵌套结构：<div style="bg:gray"><pre style="bg:gray">
-                # 视觉上是没问题的，只要 padding 处理得当。
-
-                # 修改 PRE_STYLE：增加背景色
-                modified_pre_style = self.PRE_STYLE.replace('background: transparent;', 'background: #f6f8fa; border: 1px solid #e1e4e8; border-radius: 6px; padding: 12px;')
-                # 注意：这会导致 Pygments 的代码块有双重边框/padding。
-                # 我们需要一种区分方法。
-
-                # 回到最简单的：依赖 Pygments。如果用户没写语言，Pygments 默认不处理吗？
-                # 我们可以强制 Pygments 处理所有代码块，即使没有语言。
-                # 但这涉及到 markdown 转换逻辑。
-
-                # 在这里，我们先只处理空心圆点。代码块背景问题，我们可以尝试用正则在 processor 之后做一次兜底替换。
-
                 new_attrs = self._inject_style(attrs, self.PRE_STYLE)
                 self.output.append(self._build_tag(tag, new_attrs))
                 return
@@ -1051,31 +989,13 @@ def md_to_html(md_content):
     processor.feed(final_html)
     final_html = "".join(processor.output)
 
-    # [兜底处理] 修复未指定语言的代码块背景
-    # 对于 ``` (未指定语言) 的代码块，Markdown 会生成 <pre><code ...>...</code></pre>
-    # 这些代码块没有 div.highlight 包裹，所以我们在 Processor 中漏掉了给它加容器样式
-    # 我们使用正则查找所有 style 中包含 "background: transparent" 的 pre (这是我们在 PRE_STYLE 中定义的)
-    # 并且它没有被 div.highlight 包裹（这一步比较难用正则判断，但我们可以直接修改 pre 的样式）
+    # 后续处理：Code Block 背景色清理逻辑可能不再需要了，因为我们重写了样式
+    # 但保留 clean_code_block_backgrounds 也没坏处，作为防御
 
-    # 策略：查找所有 <pre ... style="...">，如果它不包含 class="highlight" (Pygments 不会给 pre 加 class)
-    # 但我们无法区分它是 div.highlight 内部的 pre 还是独立的 pre
-    # 除非我们在 Processor 中能识别。
-
-    # 回到 Processor，我们可以在 handle_starttag 中增加一个标志 self.in_highlight_div
-    # 如果遇到 pre 且 not self.in_highlight_div，就给它应用 HIGHLIGHT_CONTAINER_STYLE + PRE_STYLE
-
-    # 但为了不再次修改庞大的 Processor 类，我们这里使用一个简单的后处理技巧：
-    # Pygments 的结构是 <div ...><pre ...>
-    # 普通代码块是 <pre ...>
-    # 我们查找前面没有 <div ...> 的 <pre ...>？这在正则里很难（lookbehind 不支持不定长）。
-
-    # 最佳方案还是微调 Processor。让我再改一次 Processor。
-    pass # 占位，实际上我需要重新编辑 Processor 类
-
-    # 由于不能在一个 Edit 调用中重新定义类，我将使用替换法来修改 WechatHTMLProcessor
-    # 主要修改 __init__ 添加 self.in_highlight_div
-    # 修改 handle_starttag 处理 div 和 pre 的逻辑
-
+    # 替换原本的列表样式应用代码（第 780-783 行）
+    # 替换原本的 inject_list_markers 函数（第 785-870 行）
+    # 替换原本的代码块样式应用代码（第 930-960 行）
+    # 替换原本的 inline code 替换逻辑（第 970-1000 行）
 
 
     # Table headers: 铁锈红字体 + 暖色背景
