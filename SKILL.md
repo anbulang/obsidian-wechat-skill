@@ -103,12 +103,12 @@ def hello():
 
 **输出 HTML：**
 ```html
-<section class="code-block">
-  <section class="code-header">
-    <span class="code-lang">Python</span>
+<section style="margin: 20px 0; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+  <section style="background: #21252b; padding: 8px 16px;">
+    <span style="color: #9da5b4; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;">Python</span>
   </section>
-  <pre class="code-content"><code><span class="code-line"><span class="line-number">1</span>def hello():</span>
-<span class="code-line"><span class="line-number">2</span>    print("Hello, World!")</span></code></pre>
+  <pre style="margin: 0; background: #282c34; padding: 16px; overflow-x: auto;"><code style="font-family: Consolas, 'SF Mono', monospace; font-size: 14px; line-height: 1.6; color: #abb2bf;"><span style="display: block;"><span style="display: inline-block; width: 32px; color: #636d83; text-align: right; margin-right: 16px; user-select: none;">1</span>def hello():</span>
+<span style="display: block;"><span style="display: inline-block; width: 32px; color: #636d83; text-align: right; margin-right: 16px; user-select: none;">2</span>    print("Hello, World!")</span></code></pre>
 </section>
 ```
 
