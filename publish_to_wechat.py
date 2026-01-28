@@ -797,27 +797,26 @@ def md_to_html(md_content):
             self.LIST_ITEM_STYLE = LIST_ITEM_STYLE
 
             # 代码块样式
+            # 注意：微信编辑器会剥离 div 的样式，所以容器样式要精简
             self.HIGHLIGHT_CONTAINER_STYLE = (
+                'margin: 16px 0; '
+                'padding: 0;'
+            )
+            # 关键：所有样式都直接应用到 pre，不依赖父容器
+            # 微信编辑模式对 pre 标签更友好
+            self.PRE_STYLE = (
                 'background: #f6f8fa; '
                 'border: 1px solid #e1e4e8; '
                 'border-radius: 6px; '
                 'padding: 16px; '
                 'margin: 16px 0; '
-                'display: block; '
-                'width: auto; '
-                'overflow-x: auto;'
-            )
-            self.PRE_STYLE = (
-                'margin: 0; '
                 'line-height: 1.6; '
                 'font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace; '
                 'font-size: 13px; '
                 'color: #333; '
                 'white-space: pre-wrap; '
                 'word-break: break-all; '
-                'border: none; '
-                'padding: 0; '
-                'background: transparent;'
+                'overflow-x: auto;'
             )
             self.INLINE_CODE_STYLE = (
                 'background: #f0f0f0; '
