@@ -1035,32 +1035,35 @@ def md_to_html(md_content):
 
     # [关键修复] 将代码块内的换行符转换为 <br> 标签，空格转换为 &nbsp;
     # 问题：微信编辑器不识别 \n 换行符，且会压缩连续空格
-    # 解决：用 <br> 标签强制换行，用 &nbsp; 保留缩进
-    # 关键：Pygments 会把空格包在 <span style="color: #BBB"> </span> 里
-    #       需要处理标签内部的空格，而不是跳过整个标签
+    # 发现：微信会删除 <br> 后紧跟的 <span style="color: #BBB"> 空格标签
+    # 解决：移除 Pygments 生成的空白 span 标签，直接用 &nbsp; 替代
     def convert_whitespace_in_code(html_content):
         """将代码块内的换行符转换为 <br>，空格转换为 &nbsp;"""
         def process_pre_content(content):
-            """处理 pre 块内容，转换空格和换行，但保护标签属性"""
-            # 策略：用正则匹配标签，分别处理标签和文本
+            """处理 pre 块内容"""
+            # 第一步：将 Pygments 的空白 span 标签替换为纯空格
+            # <span style="color: #BBB">  </span> → 直接提取里面的空格
+            def extract_whitespace_span(m):
+                # 提取 span 内的空白字符
+                whitespace = m.group(1)
+                return whitespace
+            # 匹配 color: #BBB 的 span（Pygments 用这个颜色标记空白）
+            content = re.sub(r'<span style="color: #BBB">([^<]*)</span>', extract_whitespace_span, content)
+
+            # 第二步：用正则匹配标签，分别处理标签和文本
             result = []
             last_end = 0
-            # 匹配所有标签（开始标签、结束标签、自闭合标签）
             for match in re.finditer(r'<[^>]+>', content):
                 # 处理标签之前的文本
                 text_before = content[last_end:match.start()]
                 if text_before:
-                    # 转换文本中的空格和换行
                     text_before = text_before.replace('\t', '&nbsp;&nbsp;&nbsp;&nbsp;')
                     text_before = text_before.replace(' ', '&nbsp;')
                     text_before = text_before.replace('\n', '<br>')
                     result.append(text_before)
 
-                # 处理标签本身
-                tag = match.group(0)
-                # 检查是否是 <span>...</span> 格式（可能包含只有空格的内容）
-                # 不修改标签，原样保留
-                result.append(tag)
+                # 保留标签本身
+                result.append(match.group(0))
                 last_end = match.end()
 
             # 处理最后剩余的文本
