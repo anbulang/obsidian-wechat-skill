@@ -1033,21 +1033,26 @@ def md_to_html(md_content):
     # 解决：</strong>： → ：</strong>（把冒号纳入加粗范围内）
     final_html = re.sub(r'</strong>\s*(<br\s*/?>)?\s*([：:])', r'\2</strong>', final_html)
 
-    # [关键修复] 将代码块内的换行符转换为 <br> 标签
+    # [关键修复] 将代码块内的换行符和缩进转换为 HTML 实体
     # 问题：微信编辑器不识别 \n 换行符，white-space: pre 也不生效
-    # 解决：用 <br> 标签强制换行
-    def convert_newlines_in_code(html_content):
-        """将代码块内的换行符转换为 <br>"""
+    #       同时微信会压缩连续空格，导致代码缩进丢失
+    # 解决：用 <br> 标签强制换行，用 &nbsp; 保留缩进空格
+    def convert_whitespace_in_code(html_content):
+        """将代码块内的换行符转换为 <br>，空格转换为 &nbsp;"""
         def process_pre(match):
             pre_tag = match.group(1)
             content = match.group(2)
+            # 先处理制表符（1个tab = 4个空格）
+            content = content.replace('\t', '    ')
+            # 将空格转换为 &nbsp;（保留缩进）
+            content = content.replace(' ', '&nbsp;')
             # 将 \n 转换为 <br>（不保留原始 \n，避免压缩时被移除）
             content = content.replace('\n', '<br>')
             return f'{pre_tag}{content}</pre>'
 
         return re.sub(r'(<pre[^>]*>)([\s\S]*?)</pre>', process_pre, html_content)
 
-    final_html = convert_newlines_in_code(final_html)
+    final_html = convert_whitespace_in_code(final_html)
 
     # [修复] HTML 压缩：移除标签间换行，但保护 <pre> 内的换行
     # 问题：之前的 re.sub(r'>\s+<', '><', html) 会破坏代码块内的换行
