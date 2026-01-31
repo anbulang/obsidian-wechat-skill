@@ -2,26 +2,21 @@
 import os
 import re
 import json
-import time
-import requests
-import yaml
-import markdown
 import base64
-import subprocess
 import tempfile
 import zlib
 from html.parser import HTMLParser
-from urllib.parse import urlparse
-from pygments import highlight
-from pygments.lexers import get_lexer_by_name, guess_lexer
-from pygments.formatters import HtmlFormatter
 
+import requests
+import yaml
+import markdown
 
-# ================= 配置区域 =================
+# ================= 配置 =================
+
 CONFIG_FILE = "config/wechat-credentials.local.md"
 WECHAT_API_BASE = "https://api.weixin.qq.com/cgi-bin"
 
-# Admonition 配置 (图标使用 SVG)
+# Admonition SVG 图标
 ADMONITION_ICONS = {
     'pencil': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="callout-icon"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path><path d="m15 5 4 4"></path></svg>',
     'clipboard-list': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="callout-icon"><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><path d="M12 11h4"></path><path d="M12 16h4"></path><path d="M8 11h.01"></path><path d="M8 16h.01"></path></svg>',
@@ -64,7 +59,22 @@ ADMONITION_ALIASES = {
     'error': 'danger', 'cite': 'quote'
 }
 
-# 基础样式
+# 内联样式常量
+STYLES = {
+    'h1': 'font-size: 22px; font-weight: bold; margin: 20px 0 10px; text-align: center; padding-bottom: 5px; border-bottom: 2px solid #db4c3f;',
+    'h2': 'font-size: 20px; font-weight: bold; margin: 25px 0 15px; padding: 5px 10px; border-left: 5px solid #db4c3f; border-bottom: 1px dashed #db4c3f; line-height: 1.5;',
+    'h3': 'font-size: 18px; font-weight: bold; margin: 22px 0 12px; padding: 5px 10px; border-left: 5px solid #db4c3f; border-bottom: 1px dashed #db4c3f; line-height: 1.5;',
+    'h4': 'font-size: 16px; font-weight: bold; margin: 20px 0 10px; padding: 4px 8px; border-left: 4px solid #db4c3f; line-height: 1.5;',
+    'strong': 'color: #db4c3f; font-weight: bold;',
+    'th': 'font-weight: 600; color: #db4c3f; padding: 6px 13px; border: 1px solid #e6dec5; background: #f7f1e3;',
+    'td': 'padding: 6px 13px; border: 1px solid #e6dec5;',
+    'hr': 'border: 0; height: 1px; background-image: linear-gradient(to right, rgba(219, 76, 63, 0), rgba(219, 76, 63, 1), rgba(219, 76, 63, 0)); margin: 40px 0;',
+    'list_container': "list-style: none; margin: 0em 8px 1.5em; padding: 0px; text-align: left; line-height: 1.75; font-family: 'PingFang SC', -apple-system-font, BlinkMacSystemFont, 'Helvetica Neue', 'Hiragino Sans GB', 'Microsoft YaHei UI', 'Microsoft YaHei', Arial, sans-serif; font-size: 15px; color: rgb(63, 63, 63);",
+    'list_item': "margin: 0.5em 0px; padding: 0px; text-align: left; line-height: 1.75; font-family: 'PingFang SC', -apple-system-font, BlinkMacSystemFont, 'Helvetica Neue', 'Hiragino Sans GB', 'Microsoft YaHei UI', 'Microsoft YaHei', Arial, sans-serif; font-size: 15px; color: rgb(63, 63, 63);",
+    'pre': 'background: #f6f8fa; border: 1px solid #e1e4e8; border-radius: 6px; padding: 16px; margin: 16px 0; line-height: 1.6; font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace; font-size: 13px; color: #333; white-space: pre-wrap; word-break: break-all; overflow-x: auto;',
+    'inline_code': 'background: #f0f0f0; color: #db4c3f; padding: 2px 4px; border-radius: 3px; font-family: Consolas, Monaco, monospace; font-size: 14px; margin: 0 2px;',
+}
+
 BASIC_STYLE = """
 <style>
   #nice { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 16px; line-height: 1.6; color: #333; word-wrap: break-word; }
@@ -86,86 +96,47 @@ BASIC_STYLE = """
   #nice th { font-weight: 600; color: #db4c3f; background-color: #fff5f5; }
   #nice strong { color: #db4c3f; }
   #nice hr { border: none; border-top: 1px dashed #db4c3f; margin: 30px 0; }
-  /* Admonition/Mermaid 相关样式 */
   .callout-icon svg { width: 20px; height: 20px; vertical-align: middle; }
   .footnotes { font-size: 14px; color: #666; margin-top: 40px; padding-top: 20px; border-top: 1px dashed #db4c3f; }
   .footnote-item { margin-bottom: 10px; }
 </style>
 """
 
+
 # ================= 工具函数 =================
 
-def load_config():
+def load_config() -> dict:
     if not os.path.exists(CONFIG_FILE):
         raise FileNotFoundError(f"配置文件 {CONFIG_FILE} 不存在")
     with open(CONFIG_FILE, 'r') as f:
         content = f.read()
-        match = re.match(r'^---\n(.*?)\n---', content, re.DOTALL)
-        if match:
-            return yaml.safe_load(match.group(1))
-    return {}
+    match = re.match(r'^---\n(.*?)\n---', content, re.DOTALL)
+    return yaml.safe_load(match.group(1)) if match else {}
 
-def get_access_token(config):
+
+def get_access_token(config: dict) -> str:
     if config.get('access_token'):
         return config['access_token']
-    url = f"{WECHAT_API_BASE}/token"
-    params = {
+
+    resp = requests.get(f"{WECHAT_API_BASE}/token", params={
         "grant_type": "client_credential",
         "appid": config['appid'],
         "secret": config['secret']
-    }
-    resp = requests.get(url, params=params)
+    })
     data = resp.json()
-    if 'access_token' in data:
-        return data['access_token']
-    else:
+
+    if 'access_token' not in data:
         raise Exception(f"获取 Token 失败: {data}")
+    return data['access_token']
 
-def upload_image(token, image_path_or_url):
+
+def upload_image(token: str, image_path_or_url: str) -> str | None:
+    """上传图片到微信，支持本地路径和远程 URL"""
     url = f"{WECHAT_API_BASE}/media/uploadimg?access_token={token}"
-    files = {}
+
     if image_path_or_url.startswith(('http://', 'https://')):
-        try:
-            # 添加 User-Agent 避免被反爬拦截
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            }
-            img_resp = requests.get(image_path_or_url, headers=headers, timeout=30)
-
-            # 基础验证
-            if img_resp.status_code != 200:
-                print(f"下载图片失败，状态码: {img_resp.status_code}")
-                return None
-
-            if not img_resp.content:
-                print("下载图片内容为空")
-                return None
-
-            # 动态检测 Content-Type
-            content_type = img_resp.headers.get('Content-Type', '').lower()
-
-            # 映射扩展名
-            ext_map = {
-                'image/png': '.png',
-                'image/jpeg': '.jpg',
-                'image/jpg': '.jpg',
-                'image/gif': '.gif',
-                'image/webp': '.webp'
-            }
-            # 默认使用 .jpg
-            ext = ext_map.get(content_type, '.jpg')
-
-            # 如果没有获取到 Content-Type，默认为 image/jpeg
-            if not content_type:
-                content_type = 'image/jpeg'
-
-            filename = f'image{ext}'
-
-            # 使用检测到的类型和文件名
-            files = {'media': (filename, img_resp.content, content_type)}
-
-        except Exception as e:
-            print(f"下载图片失败: {e}")
+        files = _download_image_for_upload(image_path_or_url)
+        if not files:
             return None
     else:
         if not os.path.exists(image_path_or_url):
@@ -173,388 +144,283 @@ def upload_image(token, image_path_or_url):
             return None
         files = {'media': open(image_path_or_url, 'rb')}
 
-    resp = requests.post(url, files=files)
-    data = resp.json()
-    if 'url' in data:
-        return data['url']
-    else:
+    data = requests.post(url, files=files).json()
+    if 'url' not in data:
         print(f"上传图片失败: {data}")
         return None
+    return data['url']
 
-# ================= 新增处理函数 =================
 
-def render_mermaid_with_playwright(mermaid_code):
-    """
-    使用 Playwright 在浏览器中渲染 Mermaid 图表
-    """
+def _download_image_for_upload(image_url: str) -> dict | None:
+    """下载远程图片并准备上传"""
+    headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'}
+
     try:
-        # 创建临时 HTML 文件
-        html_content = f"""
-<!DOCTYPE html>
+        resp = requests.get(image_url, headers=headers, timeout=30)
+        if resp.status_code != 200 or not resp.content:
+            print(f"下载图片失败，状态码: {resp.status_code}")
+            return None
+
+        content_type = resp.headers.get('Content-Type', 'image/jpeg').lower()
+        ext_map = {
+            'image/png': '.png', 'image/jpeg': '.jpg', 'image/jpg': '.jpg',
+            'image/gif': '.gif', 'image/webp': '.webp'
+        }
+        ext = ext_map.get(content_type, '.jpg')
+
+        return {'media': (f'image{ext}', resp.content, content_type)}
+    except Exception as e:
+        print(f"下载图片失败: {e}")
+        return None
+
+
+# ================= Mermaid 渲染 =================
+
+def render_mermaid_with_playwright(mermaid_code: str) -> str | None:
+    """使用 Playwright 渲染 Mermaid 图表"""
+    try:
+        import playwright.sync_api as pw
+    except ImportError:
+        print("警告: playwright 库未安装")
+        return None
+
+    html_content = _build_mermaid_html(mermaid_code)
+
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8') as f:
+            f.write(html_content)
+            html_path = f.name
+
+        output_path = html_path.replace('.html', '.png')
+
+        with pw.sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page(viewport={'width': 1000, 'height': 800}, device_scale_factor=2)
+            page.goto(f'file://{html_path}')
+            page.wait_for_timeout(3000)
+
+            element = page.query_selector('.mermaid svg')
+            if element:
+                element.screenshot(path=output_path, scale='device', omit_background=True)
+            else:
+                page.screenshot(path=output_path, full_page=True)
+            browser.close()
+
+        os.unlink(html_path)
+        return output_path
+    except Exception as e:
+        print(f"Playwright 渲染失败: {e}")
+        return None
+
+
+def _build_mermaid_html(mermaid_code: str) -> str:
+    """构建 Mermaid 渲染用的 HTML"""
+    return f"""<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
     <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
     <style>
-        body {{
-            margin: 0;
-            padding: 80px;
-            background: white;
-            display: inline-block;
-        }}
-        #mermaid-container {{
-            background: white;
-        }}
-        /* 优化字体大小，确保清晰度 */
-        .mermaid text {{
-            font-size: 16px !important;
-            font-family: -apple-system, BlinkMacSystemFont, sans-serif !important;
-        }}
-        .mermaid .edgeLabel {{
-            font-size: 14px !important;
-            background-color: white !important;
-            padding: 4px !important;
-        }}
-        .mermaid .sequenceNumber {{
-            fill: #333 !important;
-            stroke: #333 !important;
-            stroke-width: 2px !important;
-        }}
-        /* Ensure sequence number text is white */
-        .mermaid text.sequenceNumber,
-        .mermaid .sequenceNumber text {{
-            fill: #fff !important;
-            stroke: none !important;
-        }}
+        body {{ margin: 0; padding: 80px; background: white; display: inline-block; }}
+        #mermaid-container {{ background: white; }}
+        .mermaid text {{ font-size: 16px !important; font-family: -apple-system, BlinkMacSystemFont, sans-serif !important; }}
+        .mermaid .edgeLabel {{ font-size: 14px !important; background-color: white !important; padding: 4px !important; }}
+        .mermaid text.sequenceNumber, .mermaid .sequenceNumber text {{ fill: #fff !important; stroke: none !important; }}
     </style>
 </head>
 <body>
     <div id="mermaid-container">
-        <pre class="mermaid">
-{mermaid_code}
-        </pre>
+        <pre class="mermaid">{mermaid_code}</pre>
     </div>
     <script>
         mermaid.initialize({{
             startOnLoad: true,
             theme: 'default',
-            themeVariables: {{
-                fontSize: '16px',
-                fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
-                primaryTextColor: '#000',
-                lineColor: '#333',
-                nodePadding: 20,
-                sequenceNumberColor: '#fff',
-                sequenceNumberBgColor: '#000'
-            }},
-            flowchart: {{
-                htmlLabels: true,
-                curve: 'basis',
-                padding: 40,
-                nodeSpacing: 50,
-                rankSpacing: 50
-            }},
-            sequence: {{
-                showSequenceNumbers: true,
-                diagramMarginX: 40,
-                diagramMarginY: 40,
-                actorMargin: 50,
-                width: 150,
-                height: 65,
-                boxMargin: 20,
-                messageMargin: 35,
-                fontSize: 16,
-                messageFontSize: 14,
-                noteFontSize: 14,
-                actorFontSize: 16,
-                messageFontWeight: 400,
-                wrap: true
-            }}
+            themeVariables: {{ fontSize: '16px', fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif' }},
+            flowchart: {{ htmlLabels: true, curve: 'basis', padding: 40 }},
+            sequence: {{ showSequenceNumbers: true, fontSize: 16 }}
         }});
     </script>
 </body>
-</html>
-"""
+</html>"""
 
-        # 保存到临时文件
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8') as f:
-            f.write(html_content)
-            html_path = f.name
 
-        # 生成输出路径
-        output_path = html_path.replace('.html', '.png')
-
-        # 使用 subprocess 调用 Claude Code 的 Playwright MCP
-        # 注意：这里需要通过命令行调用，因为 MCP 工具在 Python 脚本中不可直接访问
-        # 替代方案：使用 playwright 库（需要安装 playwright）
-        try:
-            import playwright.sync_api as pw
-            with pw.sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
-                # 彻底回滚到标准配置：1000px 宽度 + 2x 缩放
-                # 这保证了布局舒展且清晰度足够
-                page = browser.new_page(
-                    viewport={'width': 1000, 'height': 800},
-                    device_scale_factor=2
-                )
-                page.goto(f'file://{html_path}')
-
-                # 等待渲染
-                page.wait_for_timeout(3000)
-
-                # 获取 SVG 元素并截图
-                element = page.query_selector('.mermaid svg')
-                if element:
-                    element.screenshot(
-                        path=output_path,
-                        scale='device',
-                        omit_background=True
-                    )
-                else:
-                    page.screenshot(path=output_path, full_page=True)
-
-                browser.close()
-
-            # 清理临时 HTML
-            os.unlink(html_path)
-            return output_path
-
-        except ImportError:
-            print("警告: playwright 库未安装，尝试使用 Kroki.io")
-            os.unlink(html_path)
-            return None
-
-    except Exception as e:
-        print(f"Playwright 渲染失败: {e}")
-        return None
-
-def render_mermaid_with_kroki(mermaid_code):
-    """
-    使用 Kroki.io API 渲染 Mermaid 图表（备用方案）
-    """
+def render_mermaid_with_kroki(mermaid_code: str) -> str | None:
+    """使用 Kroki.io API 渲染 Mermaid（备用方案）"""
     try:
-        import zlib
-        # Kroki 使用 deflate + base64 编码
         compressed = zlib.compress(mermaid_code.encode('utf-8'), level=9)
         encoded = base64.urlsafe_b64encode(compressed).decode('utf-8')
         kroki_url = f"https://kroki.io/mermaid/png/{encoded}"
 
-        # 下载图片
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
-        }
+        headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'}
         response = requests.get(kroki_url, headers=headers, timeout=15)
 
         if response.status_code == 200 and response.content:
-            # 保存到临时文件
             with tempfile.NamedTemporaryFile(mode='wb', suffix='.png', delete=False) as f:
                 f.write(response.content)
                 return f.name
-        else:
-            print(f"Kroki.io 返回错误: {response.status_code}")
-            return None
 
+        print(f"Kroki.io 返回错误: {response.status_code}")
+        return None
     except Exception as e:
         print(f"Kroki.io 渲染失败: {e}")
         return None
 
-def render_mermaid_locally(mermaid_code):
-    """
-    使用多层降级策略渲染 Mermaid 图表
-    策略: Playwright → Kroki.io → None (显示代码块)
-    """
-    print("  [1/3] 尝试使用 Playwright 本地渲染...")
+
+def render_mermaid_locally(mermaid_code: str) -> str | None:
+    """多层降级策略渲染 Mermaid: Playwright -> Kroki.io -> None"""
+    print("  [1/2] 尝试使用 Playwright 本地渲染...")
     result = render_mermaid_with_playwright(mermaid_code)
     if result:
         print("  ✓ Playwright 渲染成功")
         return result
 
-    print("  [2/3] 尝试使用 Kroki.io API...")
+    print("  [2/2] 尝试使用 Kroki.io API...")
     result = render_mermaid_with_kroki(mermaid_code)
     if result:
         print("  ✓ Kroki.io 渲染成功")
         return result
 
-    print("  [3/3] 所有渲染方案失败，将显示为代码块")
+    print("  所有渲染方案失败，将显示为代码块")
     return None
 
-def process_mermaid(content):
-    """将 Mermaid 代码块转换为图片或优雅降级为代码块"""
-    pattern = r'```mermaid\s*\n([\s\S]*?)```'
 
+# ================= Markdown 预处理 =================
+
+def process_mermaid(content: str) -> str:
+    """将 Mermaid 代码块转换为图片或降级为代码块"""
     def repl(m):
         code = m.group(1).strip()
         print("\n处理 Mermaid 图表...")
 
-        # 使用多层降级策略渲染
-        local_image_path = render_mermaid_locally(code)
+        local_path = render_mermaid_locally(code)
+        if local_path:
+            return f'![MERMAID_DIAGRAM]({local_path})'
 
-        if local_image_path:
-            # 返回带居中样式的 HTML 图片标签（稍后会被替换为微信 CDN URL）
-            # 使用 PLACEHOLDER 标记，等图片上传后再替换
-            return f'![MERMAID_DIAGRAM]({local_image_path})'
-        else:
-            # 所有渲染方案失败，生成格式化的降级代码块
-            print("  → 降级为格式化代码块显示")
-            # 转换为 HTML 格式的代码块（与微信兼容）
-            escaped_code = code.replace('<', '&lt;').replace('>', '&gt;')
-            fallback_html = f"""
+        # 降级为格式化代码块
+        escaped = code.replace('<', '&lt;').replace('>', '&gt;')
+        return f'''
 <section class="mermaid-fallback" style="background: #f5f7fa; padding: 16px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #909399;">
-  <p style="color: #606266; font-size: 14px; margin: 0 0 12px; font-weight: 600;">
-    📊 流程图 (Mermaid)
-  </p>
-  <pre style="background: #fff; padding: 12px; border-radius: 4px; overflow-x: auto; margin: 0; font-family: Consolas, Monaco, monospace; font-size: 13px; line-height: 1.5; color: #303133;"><code>{escaped_code}</code></pre>
-  <p style="color: #909399; font-size: 12px; margin: 12px 0 0; font-style: italic;">
-    提示: 图表渲染暂时不可用，已显示原始代码
-  </p>
-</section>
-"""
-            return fallback_html
+  <p style="color: #606266; font-size: 14px; margin: 0 0 12px; font-weight: 600;">📊 流程图 (Mermaid)</p>
+  <pre style="background: #fff; padding: 12px; border-radius: 4px; overflow-x: auto; margin: 0; font-family: Consolas, Monaco, monospace; font-size: 13px; line-height: 1.5; color: #303133;"><code>{escaped}</code></pre>
+  <p style="color: #909399; font-size: 12px; margin: 12px 0 0; font-style: italic;">提示: 图表渲染暂时不可用，已显示原始代码</p>
+</section>'''
 
-    return re.sub(pattern, repl, content)
+    return re.sub(r'```mermaid\s*\n([\s\S]*?)```', repl, content)
 
-def process_admonitions(content):
+
+def process_admonitions(content: str) -> str:
     """将 Admonition 代码块转换为 HTML"""
-    # 匹配 ```ad-type ... ``` 块
-    pattern = r'```ad-(\w+)(?:[ \t]+title:[ \t]*(.*))?\n([\s\S]*?)```'
-
     def repl(m):
-        ad_type = m.group(1).lower()
-        title = m.group(2)
+        ad_type = ADMONITION_ALIASES.get(m.group(1).lower(), m.group(1).lower())
+        title = (m.group(2) or '').strip() or ad_type.capitalize()
         body = m.group(3)
 
-        # 处理别名
-        if ad_type in ADMONITION_ALIASES:
-            ad_type = ADMONITION_ALIASES[ad_type]
-
-        # 获取样式配置 (默认使用 note)
         config = ADMONITION_TYPES.get(ad_type, ADMONITION_TYPES['note'])
-
-        # 默认标题
-        if not title:
-            title = ad_type.capitalize()
-        else:
-            title = title.strip()
-
-        # 图标 SVG
         icon_svg = ADMONITION_ICONS.get(config['icon'], ADMONITION_ICONS['pencil'])
-
-        # 递归处理正文 Markdown
-        # 注意：这里我们使用 markdown 库来渲染内部内容，确保加粗、链接等生效
         body_html = markdown.markdown(body, extensions=['fenced_code', 'tables'])
 
-        # 生成 HTML (内联样式以适应微信)
-        html = f"""
+        return f'''
 <section class="admonition" style="border-radius: 4px; margin: 16px 0; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
   <section class="admonition-title" style="display: flex; align-items: center; padding: 8px 12px; background: {config['bg']};">
-    <span style="color: {config['color']}; margin-right: 8px; display: flex; align-items: center;">
-      {icon_svg}
-    </span>
+    <span style="color: {config['color']}; margin-right: 8px; display: flex; align-items: center;">{icon_svg}</span>
     <span style="font-weight: 600; color: {config['color']};">{title}</span>
   </section>
   <section class="admonition-content" style="padding: 12px 16px; background: {config['bg']}; border-left: 4px solid {config['color']};">
-    <div style="font-size: 16px; color: #333; line-height: 1.6;">
-    {body_html}
-    </div>
+    <div style="font-size: 16px; color: #333; line-height: 1.6;">{body_html}</div>
   </section>
-</section>
-"""
-        return html
+</section>'''
 
-    return re.sub(pattern, repl, content)
+    return re.sub(r'```ad-(\w+)(?:[ \t]+title:[ \t]*(.*))?\\n([\\s\\S]*?)```', repl, content)
 
-def process_footnotes(content):
-    """将 [text](url) 链接转换为脚注形式"""
+
+def process_footnotes(content: str) -> str:
+    """将链接转换为脚注形式"""
     links = []
 
     def repl(m):
-        text = m.group(1)
-        url = m.group(2)
+        text, url = m.group(1), m.group(2)
         links.append({'text': text, 'url': url})
-        index = len(links)
-        # 微信不支持外链，转为蓝色文字 + 上标
-        return f'<span style="color: #3370ff;">{text}</span><sup style="color: #3370ff; font-weight: bold;">[{index}]</sup>'
+        idx = len(links)
+        return f'<span style="color: #3370ff;">{text}</span><sup style="color: #3370ff; font-weight: bold;">[{idx}]</sup>'
 
-    # 匹配 Markdown 链接，排除图片 ![]()
-    # 使用断言 (?<!!) 确保前面不是 !
-    pattern = r'(?<!!)\[(.*?)\]\((.*?)\)'
-    content = re.sub(pattern, repl, content)
+    content = re.sub(r'(?<!!)\[(.*?)\]\((.*?)\)', repl, content)
 
-    # 生成脚注列表
     if links:
         content += '\n\n<div class="footnotes">'
         content += '<h4 style="font-size: 14px; color: #999; margin-bottom: 12px; border-bottom: 1px solid #eee; padding-bottom: 5px;">引用链接</h4>'
         for i, link in enumerate(links):
-            index = i + 1
-            content += f'<div class="footnote-item"><span style="color: #3370ff; font-weight: bold;">[{index}]</span> {link["text"]}: {link["url"]}</div>'
+            content += f'<div class="footnote-item"><span style="color: #3370ff; font-weight: bold;">[{i+1}]</span> {link["text"]}: {link["url"]}</div>'
         content += '</div>'
 
     return content
 
-def preprocess_json_comments(content):
-    """
-    处理 JSON 代码块中的注释
-    JSON 标准不支持 // 注释，但原始文档中可能包含，这会导致 Pygments 无法正确高亮
-    解决方案：移除 JSON 代码块中的行尾注释
-    """
-    def process_json_block(match):
-        lang = match.group(1)
-        code = match.group(2)
-        if lang.lower() == 'json':
-            # 移除行尾注释 // ...（保留字符串内的 //）
-            # 策略：只处理不在引号内的 //
-            lines = code.split('\n')
-            cleaned_lines = []
-            for line in lines:
-                # 简单策略：查找 // 并检查它前面是否在字符串内
-                # 更安全的做法：只移除行尾的 // 注释
-                # 匹配模式：非字符串内的 // 到行尾
-                cleaned = re.sub(r'\s*//[^"]*$', '', line)
-                cleaned_lines.append(cleaned)
-            code = '\n'.join(cleaned_lines)
-        return f'```{lang}\n{code}```'
 
-    return re.sub(r'```(\w+)\n([\s\S]*?)```', process_json_block, content)
+def preprocess_markdown(body: str) -> str:
+    """Markdown 预处理：清理列表空行、修复代码块等"""
+    # 清理列表项间空行
+    body = re.sub(r'(\d+\.\s+[^\n]+)\n+(?=\s*\d+\.\s+)', r'\1\n', body)
+    body = re.sub(r'([-*+]\s+[^\n]+)\n+(?=\s*[-*+]\s+)', r'\1\n', body)
+    body = re.sub(r'\n{3,}', '\n\n', body)
+
+    # 确保列表前有空行
+    body = _ensure_list_spacing(body)
+
+    # 修复列表内代码块
+    body = _fix_code_blocks_in_lists(body)
+
+    # 移除孤立语言标签
+    body = re.sub(
+        r'\n\s*(JSON|PYTHON|JAVASCRIPT|JAVA|SHELL|BASH|SQL|XML|HTML|CSS|YAML|TOML)\s*\n\s*\n(\s*```)',
+        r'\n\n\2', body, flags=re.IGNORECASE
+    )
+
+    # 预处理 JSON 注释
+    body = _preprocess_json_comments(body)
+
+    return body
 
 
-def fix_code_blocks_in_lists(content):
-    """
-    修复列表项内代码块的格式问题
+def _ensure_list_spacing(content: str) -> str:
+    """确保列表前有空行"""
+    lines = content.split('\n')
+    result = []
 
-    问题：Obsidian 中列表项内的代码块只有 4 空格缩进，
-    但标准 Markdown 要求 8 空格才能正确识别。
-    导致代码块被解析为行内 <code> 而非 <pre> 块。
+    for i, line in enumerate(lines):
+        is_list_start = re.match(r'^(\s*)([-*+]|\d+\.)\s+', line)
+        if is_list_start and i > 0:
+            prev = lines[i - 1].strip()
+            if (prev and
+                not re.match(r'^([-*+]|\d+\.)\s+', prev) and
+                not prev.startswith('#') and
+                not prev.startswith('```') and
+                not prev.startswith('>')):
+                result.append('')
+        result.append(line)
 
-    解决方案：将列表项内的代码块提取出来，放到列表项外部单独处理。
-    """
+    return '\n'.join(result)
+
+
+def _fix_code_blocks_in_lists(content: str) -> str:
+    """修复列表项内代码块的格式问题"""
     lines = content.split('\n')
     result = []
     i = 0
 
     while i < len(lines):
         line = lines[i]
-
-        # 检测列表项内缩进的代码块开始（4 空格 + ```）
         if re.match(r'^    ```\w*', line):
-            # 找到代码块，收集完整的代码块内容
-            code_block_lines = [line.lstrip()]  # 移除前导空格
+            code_block = [line.lstrip()]
             i += 1
             while i < len(lines):
-                inner_line = lines[i]
-                # 检测代码块结束（4 空格 + ```）
-                if re.match(r'^    ```\s*$', inner_line):
-                    code_block_lines.append('```')
+                inner = lines[i]
+                if re.match(r'^    ```\s*$', inner):
+                    code_block.append('```')
                     i += 1
                     break
-                # 移除 4-6 空格的缩进（保留代码内部的相对缩进）
-                cleaned = re.sub(r'^    {1,2}', '', inner_line)
-                code_block_lines.append(cleaned)
+                code_block.append(re.sub(r'^    {1,2}', '', inner))
                 i += 1
-
-            # 将代码块内容添加到结果（无缩进，作为独立块）
-            result.append('')  # 空行分隔
-            result.extend(code_block_lines)
-            result.append('')  # 空行分隔
+            result.extend([''] + code_block + [''])
         else:
             result.append(line)
             i += 1
@@ -562,558 +428,262 @@ def fix_code_blocks_in_lists(content):
     return '\n'.join(result)
 
 
-def remove_orphan_language_labels(content):
-    """
-    移除代码块前的孤立语言标签
+def _preprocess_json_comments(content: str) -> str:
+    """移除 JSON 代码块中的注释"""
+    def process_block(match):
+        lang, code = match.group(1), match.group(2)
+        if lang.lower() == 'json':
+            code = '\n'.join(re.sub(r'\s*//[^"]*$', '', line) for line in code.split('\n'))
+        return f'```{lang}\n{code}```'
 
-    问题：原始 MD 中可能有类似这样的结构：
-        JSON
-
-        ```json
-        ...
-        ```
-
-    其中 "JSON" 是孤立的文本，不是代码块的一部分。
-    这会导致 "JSON" 被渲染为独立段落。
-
-    解决方案：移除代码块前的孤立语言标签行
-    """
-    # 匹配：空行 + 语言标签行 + 空行 + 代码块开始
-    # 语言标签通常是大写的 JSON, PYTHON, JAVASCRIPT 等
-    pattern = r'\n\s*(JSON|PYTHON|JAVASCRIPT|JAVA|SHELL|BASH|SQL|XML|HTML|CSS|YAML|TOML)\s*\n\s*\n(\s*```)'
-    content = re.sub(pattern, r'\n\n\2', content, flags=re.IGNORECASE)
-    return content
+    return re.sub(r'```(\w+)\n([\s\S]*?)```', process_block, content)
 
 
-def ensure_list_spacing(content):
-    """
-    确保列表前有空行，否则 Markdown 解析器不会将其识别为列表
+# ================= HTML 处理 =================
 
-    问题：Obsidian 中常见这样的写法：
-        这是一段文字。
-        - 列表项1
-        - 列表项2
+class WechatHTMLProcessor(HTMLParser):
+    """微信兼容的 HTML 处理器"""
 
-    但标准 Markdown 要求列表前必须有空行：
-        这是一段文字。
+    def __init__(self):
+        super().__init__()
+        self.output = []
+        self.list_stack = []
+        self.in_pre = False
+        self.in_li = False
 
-        - 列表项1
-        - 列表项2
+    def handle_starttag(self, tag, attrs):
+        attrs_dict = dict(attrs)
 
-    解决方案：检测并在段落和列表之间插入空行
-    """
-    lines = content.split('\n')
-    result = []
+        if tag in ('ul', 'ol'):
+            marker_type = 'num' if tag == 'ol' else 'bull'
+            self.list_stack.append({'tag': tag, 'count': 1, 'marker_type': marker_type})
+            self.output.append(self._build_tag(tag, self._inject_style(attrs, STYLES['list_container'])))
+            return
 
-    for i, line in enumerate(lines):
-        # 检测当前行是否是列表项开始
-        is_list_start = re.match(r'^(\s*)([-*+]|\d+\.)\s+', line)
+        if tag == 'li':
+            self.in_li = True
+            self.output.append(self._build_tag(tag, self._inject_style(attrs, STYLES['list_item'])))
+            if self.list_stack:
+                current = self.list_stack[-1]
+                level = len(self.list_stack) - 1
+                if current['marker_type'] == 'num':
+                    marker = f"{current['count']}. "
+                    current['count'] += 1
+                else:
+                    marker = '◦ ' if level % 2 == 1 else '• '
+                self.output.append(marker)
+            return
 
-        if is_list_start and i > 0:
-            prev_line = lines[i - 1].strip()
-            # 如果前一行不是空行、不是列表项、不是标题、不是代码块标记
-            if (prev_line and
-                not re.match(r'^([-*+]|\d+\.)\s+', prev_line) and
-                not prev_line.startswith('#') and
-                not prev_line.startswith('```') and
-                not prev_line.startswith('>')):
-                # 在列表项前插入空行
-                result.append('')
+        if tag == 'div' and 'highlight' in attrs_dict.get('class', '').split():
+            self.output.append(self._build_tag(tag, self._inject_style(attrs, 'margin: 16px 0; padding: 0;')))
+            return
 
-        result.append(line)
+        if tag == 'pre':
+            self.in_pre = True
+            self.output.append(self._build_tag(tag, self._inject_style(attrs, STYLES['pre'])))
+            return
 
-    return '\n'.join(result)
-
-
-def process_content_workflow(content, token):
-    """完整的 Markdown 处理工作流"""
-
-    # 1. 提取 Frontmatter
-    frontmatter = {}
-    body = content
-    match = re.match(r'^---\n(.*?)\n---\n', content, re.DOTALL)
-    if match:
-        frontmatter = yaml.safe_load(match.group(1))
-        body = content[match.end():]
-
-    # [增强] 列表空行清理：移除列表项之间的多余空行，防止微信编辑器渲染异常
-    # 策略：双层清理 - Markdown 层 + HTML 层（HTML 层在 md_to_html 函数中处理）
-    #
-    # 更激进的列表空行清理 - 处理列表项之间的所有空白行
-    # 包括处理带缩进的空行、多行列表项等复杂情况
-
-    # 1. 清理有序列表项之间的空行（支持多行列表项内容）
-    # 匹配：数字.内容 + 空行 + 下一个数字.
-    body = re.sub(r'(\d+\.\s+[^\n]+)\n+(?=\s*\d+\.\s+)', r'\1\n', body)
-
-    # 2. 清理无序列表项之间的空行
-    body = re.sub(r'([-*+]\s+[^\n]+)\n+(?=\s*[-*+]\s+)', r'\1\n', body)
-
-    # 3. 处理多行列表项（列表项内有换行但不是新列表项）
-    # 保留列表项内部的合理换行，但移除过多的空行
-    body = re.sub(r'\n{3,}', '\n\n', body)  # 将连续3+空行压缩为2行
-
-    # [新增] 确保列表前有空行，否则 Markdown 解析器不会识别为列表
-    # 这是最常见的问题：Obsidian 允许段落后直接跟列表，但标准 MD 不行
-    body = ensure_list_spacing(body)
-
-    # [新增] 修复列表项内代码块的格式问题
-    # Obsidian 中列表项内的代码块缩进不足，导致 Markdown 解析器无法识别
-    body = fix_code_blocks_in_lists(body)
-
-    # [新增] 移除代码块前的孤立语言标签（如单独一行的 "JSON"）
-    body = remove_orphan_language_labels(body)
-
-    # [新增] JSON 注释预处理：移除 JSON 代码块中的 // 注释
-    # 这样 Pygments 才能正确进行语法高亮
-    body = preprocess_json_comments(body)
-
-    # 2. Mermaid 处理 (转为图片链接)
-    body = process_mermaid(body)
-
-    # 3. 图片上传 (处理所有 ![]()，包括刚才生成的 Mermaid 图片)
-    def replace_img(m):
-        alt = m.group(1)
-        src = m.group(2)
-        print(f"正在上传图片: {src}")
-        wechat_url = upload_image(token, src)
-        if wechat_url:
-            # 检查是否是 Mermaid 图表（通过 alt 或路径判断）
-            is_mermaid = 'MERMAID_DIAGRAM' in alt or '/tmp' in src
-
-            if is_mermaid:
-                # Mermaid 图表使用居中样式的 HTML
-                return f'''
-<section class="mermaid-wrapper" style="text-align: center; margin: 24px 0;">
-  <img src="{wechat_url}" alt="流程图" style="max-width: 100%; height: auto; display: inline-block; box-shadow: 0 2px 8px rgba(0,0,0,0.1); border-radius: 4px;" />
-</section>
-'''
+        if tag == 'code':
+            if not self.in_pre and 'style' not in attrs_dict:
+                self.output.append(self._build_tag(tag, self._inject_style(attrs, STYLES['inline_code'])))
             else:
-                # 普通图片也居中显示
-                return f'''
-<section class="image-wrapper" style="text-align: center; margin: 20px 0;">
-  <img src="{wechat_url}" alt="{alt}" style="max-width: 100%; height: auto; display: inline-block; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);" />
-</section>
-'''
-        return m.group(0)
+                self.output.append(self._build_tag(tag, attrs))
+            return
 
-    body = re.sub(r'!\[(.*?)\]\((.*?)\)', replace_img, body)
+        if tag == 'p' and self.in_li:
+            return
 
-    # 4. Admonition 处理 (转为 HTML)
-    # 注意：此时 body 里的图片已经是微信链接了，HTML 渲染时会保留
-    body = process_admonitions(body)
+        self.output.append(self._build_tag(tag, attrs))
 
-    # 5. 链接转脚注
-    body = process_footnotes(body)
+    def handle_endtag(self, tag):
+        if tag in ('ul', 'ol') and self.list_stack:
+            self.list_stack.pop()
+        if tag == 'li':
+            self.in_li = False
+        if tag == 'pre':
+            self.in_pre = False
+        if tag == 'p' and self.in_li:
+            self.output.append("<br>")
+            return
+        self.output.append(f"</{tag}>")
 
-    return frontmatter, body
+    def handle_data(self, data):
+        self.output.append(data)
 
-def md_to_html(md_content):
+    def handle_entityref(self, name):
+        self.output.append(f'&{name};')
+
+    def handle_charref(self, name):
+        self.output.append(f'&#{name};')
+
+    def _build_tag(self, tag, attrs) -> str:
+        if not attrs:
+            return f"<{tag}>"
+        if isinstance(attrs, list):
+            attrs_str = " ".join(f'{k}="{v}"' for k, v in attrs)
+        else:
+            attrs_str = f'style="{attrs}"'
+        return f"<{tag} {attrs_str}>"
+
+    def _inject_style(self, attrs, style_to_add):
+        new_attrs = dict(attrs)
+        if 'style="' in style_to_add:
+            match = re.search(r'style="([^"]*)"', style_to_add)
+            style_to_add = match.group(1) if match else style_to_add
+
+        current = new_attrs.get('style', '')
+        if current and not current.strip().endswith(';'):
+            current += ';'
+        new_attrs['style'] = current + style_to_add
+        return list(new_attrs.items())
+
+
+def md_to_html(md_content: str) -> str:
     """Markdown 转 HTML"""
-    # 转换剩余的 Markdown (如列表、粗体等)
-    # 启用 codehilite 扩展以支持代码高亮（GitHub 风格）
-    # 启用 fenced_code 以支持 ``` 语法
-    html = markdown.markdown(md_content,
+    html = markdown.markdown(
+        md_content,
         extensions=['fenced_code', 'tables', 'codehilite'],
         extension_configs={
             'codehilite': {
                 'css_class': 'highlight',
                 'guess_lang': True,
                 'use_pygments': True,
-                'noclasses': True  # 关键：生成内联样式
+                'noclasses': True
             }
         }
     )
 
-    # 添加全局背景色 (暖杏色/信纸色)
-    final_html = f"""
+    final_html = f'''
     <section id="nice" style="background-color: #fffdf9; padding: 20px; border-radius: 8px;">
         {BASIC_STYLE}
         {html}
     </section>
-    """
-    # 简单的样式增强 (强制内联关键样式，确保在微信中生效)
-    # H1: 居中，底部实线
-    final_html = final_html.replace('<h1>', '<h1 style="font-size: 22px; font-weight: bold; margin: 20px 0 10px; text-align: center; padding-bottom: 5px; border-bottom: 2px solid #db4c3f;">')
+    '''
 
-    # H2: 左侧粗线，底部虚线，去除了背景色(整体背景色已设)
-    h2_style = 'style="font-size: 20px; font-weight: bold; margin: 25px 0 15px; padding: 5px 10px; border-left: 5px solid #db4c3f; border-bottom: 1px dashed #db4c3f; line-height: 1.5;"'
-    final_html = final_html.replace('<h2>', f'<h2 {h2_style}>')
+    # 应用标签样式
+    for tag in ['h1', 'h2', 'h3', 'h4', 'strong']:
+        final_html = final_html.replace(f'<{tag}>', f'<{tag} style="{STYLES[tag]}">')
 
-    # H3: 同样应用 H2 的样式
-    h3_style = 'style="font-size: 18px; font-weight: bold; margin: 22px 0 12px; padding: 5px 10px; border-left: 5px solid #db4c3f; border-bottom: 1px dashed #db4c3f; line-height: 1.5;"'
-    final_html = final_html.replace('<h3>', f'<h3 {h3_style}>')
+    final_html = final_html.replace('<th>', f'<th style="{STYLES["th"]}">')
+    final_html = final_html.replace('<td>', f'<td style="{STYLES["td"]}">')
+    final_html = re.sub(r'<hr\s*/?>', f'<hr style="{STYLES["hr"]}">', final_html)
 
-    # H4: 增加 H4 样式 (稍小一些，保持风格)
-    # 去除背景色，只保留左侧线条
-    h4_style = 'style="font-size: 16px; font-weight: bold; margin: 20px 0 10px; padding: 4px 8px; border-left: 4px solid #db4c3f; line-height: 1.5;"'
-    final_html = final_html.replace('<h4>', f'<h4 {h4_style}>')
-
-    # Strong: 铁锈红字体
-    final_html = final_html.replace('<strong>', '<strong style="color: #db4c3f; font-weight: bold;">')
-
-    # List Containers & Items: 使用样板文件的标准列表样式
-    # 采用 list-style: none + 详细内联样式的标准化方案
-    LIST_CONTAINER_STYLE = (
-        'style="list-style: none; '
-        'margin: 0em 8px 1.5em; '
-        'padding: 0px; '
-        'text-align: left; '
-        'line-height: 1.75; '
-        "font-family: 'PingFang SC', -apple-system-font, BlinkMacSystemFont, 'Helvetica Neue', 'Hiragino Sans GB', 'Microsoft YaHei UI', 'Microsoft YaHei', Arial, sans-serif; "
-        'font-size: 15px; '
-        'color: rgb(63, 63, 63);'
-        '"'
-    )
-
-    LIST_ITEM_STYLE = (
-        'style="margin: 0.5em 0px; '
-        'padding: 0px; '
-        'text-align: left; '
-        'line-height: 1.75; '
-        "font-family: 'PingFang SC', -apple-system-font, BlinkMacSystemFont, 'Helvetica Neue', 'Hiragino Sans GB', 'Microsoft YaHei UI', 'Microsoft YaHei', Arial, sans-serif; "
-        'font-size: 15px; '
-        'color: rgb(63, 63, 63);'
-        '"'
-    )
-
-    # [重构] 使用 HTMLParser 进行精确的列表和代码块处理
-    # 解决：正则无法处理嵌套列表、重复注入符号、代码块样式污染等问题
-    class WechatHTMLProcessor(HTMLParser):
-        def __init__(self):
-            super().__init__()
-            self.output = []
-
-            # 状态栈：记录当前所在的标签层级
-            # 格式：{'tag': 'ul'/'ol', 'count': 1, 'marker_type': 'bull'/'num'}
-            self.list_stack = []
-
-            self.in_pre = False
-            self.in_code = False
-            self.in_li = False  # 标记是否在 li 内部，用于剥离 p 标签
-
-            # 样式定义
-            self.LIST_CONTAINER_STYLE = LIST_CONTAINER_STYLE
-            self.LIST_ITEM_STYLE = LIST_ITEM_STYLE
-
-            # 代码块样式
-            # 注意：微信编辑器会剥离 div 的样式，所以容器样式要精简
-            self.HIGHLIGHT_CONTAINER_STYLE = (
-                'margin: 16px 0; '
-                'padding: 0;'
-            )
-            # 关键：所有样式都直接应用到 pre，不依赖父容器
-            # 微信编辑模式对 pre 标签更友好
-            self.PRE_STYLE = (
-                'background: #f6f8fa; '
-                'border: 1px solid #e1e4e8; '
-                'border-radius: 6px; '
-                'padding: 16px; '
-                'margin: 16px 0; '
-                'line-height: 1.6; '
-                'font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace; '
-                'font-size: 13px; '
-                'color: #333; '
-                'white-space: pre-wrap; '
-                'word-break: break-all; '
-                'overflow-x: auto;'
-            )
-            self.INLINE_CODE_STYLE = (
-                'background: #f0f0f0; '
-                'color: #db4c3f; '
-                'padding: 2px 4px; '
-                'border-radius: 3px; '
-                'font-family: Consolas, Monaco, monospace; '
-                'font-size: 14px; '
-                'margin: 0 2px;'
-            )
-
-        def handle_starttag(self, tag, attrs):
-            attrs_dict = dict(attrs)
-
-            # 处理列表容器
-            if tag in ('ul', 'ol'):
-                # 确定层级和类型
-                marker_type = 'num' if tag == 'ol' else 'bull'
-                self.list_stack.append({'tag': tag, 'count': 1, 'marker_type': marker_type})
-
-                # 注入样式
-                new_attrs = self._inject_style(attrs, self.LIST_CONTAINER_STYLE)
-                self.output.append(self._build_tag(tag, new_attrs))
-                return
-
-            # 处理列表项
-            if tag == 'li':
-                self.in_li = True
-                new_attrs = self._inject_style(attrs, self.LIST_ITEM_STYLE)
-                self.output.append(self._build_tag(tag, new_attrs))
-
-                # 注入符号
-                if self.list_stack:
-                    current = self.list_stack[-1]
-                    level = len(self.list_stack) - 1
-
-                    if current['marker_type'] == 'num':
-                        marker = f"{current['count']}. "
-                        current['count'] += 1
-                    else:
-                        # 0层=实心点, 1层=空心点
-                        marker = '◦ ' if level % 2 == 1 else '• '
-
-                    self.output.append(marker)
-                return
-
-            # 处理代码块容器 (Pygments 生成的 div.highlight)
-            if tag == 'div' and 'highlight' in attrs_dict.get('class', '').split():
-                new_attrs = self._inject_style(attrs, self.HIGHLIGHT_CONTAINER_STYLE)
-                self.output.append(self._build_tag(tag, new_attrs))
-                return
-
-            # 处理 pre
-            if tag == 'pre':
-                self.in_pre = True
-                new_attrs = self._inject_style(attrs, self.PRE_STYLE)
-                self.output.append(self._build_tag(tag, new_attrs))
-                return
-
-            # 处理 code
-            if tag == 'code':
-                self.in_code = True
-                # 只有不在 pre 内部且没有自带样式的 code 才加行内样式
-                if not self.in_pre and 'style' not in attrs_dict:
-                    new_attrs = self._inject_style(attrs, self.INLINE_CODE_STYLE)
-                    self.output.append(self._build_tag(tag, new_attrs))
-                else:
-                    self.output.append(self._build_tag(tag, attrs))
-                return
-
-            # 处理 li 内部的 p 标签 -> 直接忽略 p 标签本身，只保留内容
-            if tag == 'p' and self.in_li:
-                return
-
-            # 其他标签原样输出
-            self.output.append(self._build_tag(tag, attrs))
-
-        def handle_endtag(self, tag):
-            if tag in ('ul', 'ol'):
-                if self.list_stack:
-                    self.list_stack.pop()
-                self.output.append(f"</{tag}>")
-                return
-
-            if tag == 'li':
-                self.in_li = False
-                self.output.append(f"</{tag}>")
-                return
-
-            if tag == 'pre':
-                self.in_pre = False
-                self.output.append(f"</{tag}>")
-                return
-
-            if tag == 'code':
-                self.in_code = False
-                self.output.append(f"</{tag}>")
-                return
-
-            # 忽略 li 内部的 p 结束标签
-            if tag == 'p' and self.in_li:
-                self.output.append("<br>") # 可选：如果原来有两个p，可能需要br分隔，但通常不需要
-                return
-
-            self.output.append(f"</{tag}>")
-
-        def handle_data(self, data):
-            # 处理 li 内部的 p 内容时的空白清理（可选）
-            if self.in_li and not data.strip():
-                # 如果是在 li 内部的纯空白，可以保留一个空格或者压缩
-                # 这里简单输出，因为浏览器会合并空白
-                self.output.append(data)
-            else:
-                self.output.append(data)
-
-        def handle_entityref(self, name):
-            self.output.append(f'&{name};')
-
-        def handle_charref(self, name):
-            self.output.append(f'&#{name};')
-
-        # 辅助方法
-        def _build_tag(self, tag, attrs):
-            if not attrs:
-                return f"<{tag}>"
-            attrs_str = " ".join([f'{k}="{v}"' for k, v in attrs])
-            return f"<{tag} {attrs_str}>"
-
-        def _inject_style(self, attrs, style_to_add):
-            # 将 style_to_add 合并到 attrs 中
-            # 如果已有 style，追加；否则新建
-            new_attrs = dict(attrs)
-            current_style = new_attrs.get('style', '')
-            if current_style:
-                # 简单追加，最后的分号保证正确性
-                if not current_style.strip().endswith(';'):
-                    current_style += ';'
-                new_attrs['style'] = current_style + ' ' + style_to_add
-            else:
-                # 这里的 style_to_add 包含了 'style=' 前缀吗？看定义是没有的
-                # 但原来的常量定义里有 'style="..."' 格式
-                # 所以我们需要解析一下传入的 style_to_add
-                # 假设传入的 style_to_add 是 "key: val; key: val" 格式（去掉了 style=""）
-                # 等等，之前的常量定义是 'style="..."' 格式
-                # 我们需要修正常量的使用方式
-                pass
-
-            # 修正：我们需要把常量中的 style="..." 剥离出来
-            # 简单起见，我们假设 style_to_add 是纯 CSS 字符串
-            # 但之前的常量如 LIST_CONTAINER_STYLE 包含了 style="..."
-            # 所以我们需要做一个简单的正则提取
-            css_content = style_to_add
-            if 'style="' in style_to_add:
-                match = re.search(r'style="([^"]*)"', style_to_add)
-                if match:
-                    css_content = match.group(1)
-
-            # 现在合并
-            final_css = new_attrs.get('style', '')
-            if final_css and not final_css.strip().endswith(';'):
-                final_css += ';'
-            final_css += css_content
-
-            new_attrs['style'] = final_css
-            return list(new_attrs.items())
-
-    # 执行 Processor
+    # 使用 HTML 处理器处理列表和代码块
     processor = WechatHTMLProcessor()
     processor.feed(final_html)
     final_html = "".join(processor.output)
 
-    # 后续处理：Code Block 背景色清理逻辑可能不再需要了，因为我们重写了样式
-    # 但保留 clean_code_block_backgrounds 也没坏处，作为防御
-
-    # 替换原本的列表样式应用代码（第 780-783 行）
-    # 替换原本的 inject_list_markers 函数（第 785-870 行）
-    # 替换原本的代码块样式应用代码（第 930-960 行）
-    # 替换原本的 inline code 替换逻辑（第 970-1000 行）
-
-
-    # Table headers: 铁锈红字体 + 暖色背景
-    final_html = final_html.replace('<th>', '<th style="font-weight: 600; color: #db4c3f; padding: 6px 13px; border: 1px solid #e6dec5; background: #f7f1e3;">')
-
-    # Table cells: 暖灰边框
-    final_html = final_html.replace('<td>', '<td style="padding: 6px 13px; border: 1px solid #e6dec5;">')
-
-    # HR: 渐变分割线 (中间深两边浅)
-    # 使用 linear-gradient 实现渐变
-    final_html = re.sub(r'<hr\s*/?>', '<hr style="border: 0; height: 1px; background-image: linear-gradient(to right, rgba(219, 76, 63, 0), rgba(219, 76, 63, 1), rgba(219, 76, 63, 0)); margin: 40px 0;">', final_html)
-
-    # [关键] HTML 层列表项清理 - 移除空的列表项，但保留正常结构
-    # 策略：保守处理，只移除明显有问题的结构，不破坏正常内容
-    def simplify_list_items(html_content):
-        """清理列表项中的空元素，但保留正常换行"""
-
-        # 1. 移除完全空的 li（只有空白）
-        html_content = re.sub(r'<li[^>]*>\s*</li>', '', html_content)
-
-        # 2. 移除 li 内只有空 p 的情况
-        html_content = re.sub(r'<li[^>]*>\s*<p[^>]*>\s*</p>\s*</li>', '', html_content)
-
-        # 3. 移除孤立的空 p 标签
-        html_content = re.sub(r'<p[^>]*>\s*</p>', '', html_content)
-
-        # 4. 移除连续的空行（超过2个换行压缩为2个）
-        html_content = re.sub(r'\n{3,}', '\n\n', html_content)
-
-        return html_content
-
-    final_html = simplify_list_items(final_html)
-
-    # [关键修复] 将紧跟 </strong> 的冒号移入标签内部
-    # 原因：微信编辑器会在 </strong> 后自动换行，导致冒号被分离到下一行
-    # 解决：</strong>： → ：</strong>（把冒号纳入加粗范围内）
+    # 后处理
+    final_html = _simplify_list_items(final_html)
     final_html = re.sub(r'</strong>\s*(<br\s*/?>)?\s*([：:])', r'\2</strong>', final_html)
-
-    # [关键修复] 将代码块内的换行符转换为 <br> 标签，空格转换为 &nbsp;
-    # 问题：微信编辑器不识别 \n 换行符，且会压缩连续空格
-    # 解决：移除 Pygments 生成的空白 span 标签，直接用 &nbsp; 替代
-    def convert_whitespace_in_code(html_content):
-        """将代码块内的换行符转换为 <br>，空格转换为 &nbsp;"""
-
-        def convert_text_whitespace(text):
-            """将文本中的空白字符转换为 HTML 实体"""
-            if not text:
-                return ''
-            return (text
-                .replace('\t', '&nbsp;&nbsp;&nbsp;&nbsp;')
-                .replace(' ', '&nbsp;')
-                .replace('\n', '<br>'))
-
-        def process_pre_content(content):
-            """处理 pre 块内容"""
-            # 移除 Pygments 的空白 span 标签，保留其内容
-            content = re.sub(r'<span style="color: #BBB">([^<]*)</span>', r'\1', content)
-
-            # 分离 HTML 标签和文本，只转换文本部分的空白
-            result = []
-            last_end = 0
-            for match in re.finditer(r'<[^>]+>', content):
-                result.append(convert_text_whitespace(content[last_end:match.start()]))
-                result.append(match.group(0))
-                last_end = match.end()
-            result.append(convert_text_whitespace(content[last_end:]))
-
-            return ''.join(result)
-
-        def process_pre(match):
-            return f'{match.group(1)}{process_pre_content(match.group(2))}</pre>'
-
-        return re.sub(r'(<pre[^>]*>)([\s\S]*?)</pre>', process_pre, html_content)
-
-    final_html = convert_whitespace_in_code(final_html)
-
-    # [修复] HTML 压缩：移除标签间换行，但保护 <pre> 内的换行
-    # 问题：之前的 re.sub(r'>\s+<', '><', html) 会破坏代码块内的换行
-    # 策略：先提取所有 pre 块，用占位符替代，压缩后再还原
-    def compress_html_preserve_pre(html):
-        pre_blocks = []
-        def save_pre(m):
-            pre_blocks.append(m.group(0))
-            return f'__PRE_PLACEHOLDER_{len(pre_blocks) - 1}__'
-
-        # 提取所有 <pre>...</pre> 块（包括带属性的）
-        html = re.sub(r'<pre[^>]*>[\s\S]*?</pre>', save_pre, html)
-
-        # 压缩标签间空白
-        html = re.sub(r'>\s+<', '><', html)
-
-        # 还原 pre 块
-        for i, block in enumerate(pre_blocks):
-            html = html.replace(f'__PRE_PLACEHOLDER_{i}__', block)
-
-        return html
-
-    final_html = compress_html_preserve_pre(final_html)
+    final_html = _convert_whitespace_in_code(final_html)
+    final_html = _compress_html_preserve_pre(final_html)
 
     return final_html
 
-def publish_draft(token, article_data):
-    url = f"{WECHAT_API_BASE}/draft/add?access_token={token}"
-    json_str = json.dumps(article_data, ensure_ascii=False)
-    # print(f"【调试】发送数据预览 (前200字符):\n{json_str[:200]}...")
-    json_bytes = json_str.encode('utf-8')
-    resp = requests.post(
-        url,
-        data=json_bytes,
-        headers={'Content-Type': 'application/json; charset=utf-8'}
+
+def _simplify_list_items(html: str) -> str:
+    """清理空列表项"""
+    html = re.sub(r'<li[^>]*>\s*</li>', '', html)
+    html = re.sub(r'<li[^>]*>\s*<p[^>]*>\s*</p>\s*</li>', '', html)
+    html = re.sub(r'<p[^>]*>\s*</p>', '', html)
+    html = re.sub(r'\n{3,}', '\n\n', html)
+    return html
+
+
+def _convert_whitespace_in_code(html: str) -> str:
+    """将代码块内空白转换为 HTML 实体"""
+    def convert_text(text):
+        if not text:
+            return ''
+        return text.replace('\t', '&nbsp;&nbsp;&nbsp;&nbsp;').replace(' ', '&nbsp;').replace('\n', '<br>')
+
+    def process_pre_content(content):
+        content = re.sub(r'<span style="color: #BBB">([^<]*)</span>', r'\1', content)
+        result = []
+        last_end = 0
+        for m in re.finditer(r'<[^>]+>', content):
+            result.append(convert_text(content[last_end:m.start()]))
+            result.append(m.group(0))
+            last_end = m.end()
+        result.append(convert_text(content[last_end:]))
+        return ''.join(result)
+
+    return re.sub(
+        r'(<pre[^>]*>)([\s\S]*?)</pre>',
+        lambda m: f'{m.group(1)}{process_pre_content(m.group(2))}</pre>',
+        html
     )
+
+
+def _compress_html_preserve_pre(html: str) -> str:
+    """压缩 HTML 但保留 pre 块内容"""
+    pre_blocks = []
+
+    def save_pre(m):
+        pre_blocks.append(m.group(0))
+        return f'__PRE_PLACEHOLDER_{len(pre_blocks) - 1}__'
+
+    html = re.sub(r'<pre[^>]*>[\s\S]*?</pre>', save_pre, html)
+    html = re.sub(r'>\s+<', '><', html)
+
+    for i, block in enumerate(pre_blocks):
+        html = html.replace(f'__PRE_PLACEHOLDER_{i}__', block)
+
+    return html
+
+
+# ================= 工作流 =================
+
+def process_content_workflow(content: str, token: str) -> tuple[dict, str]:
+    """完整的 Markdown 处理工作流"""
+    frontmatter = {}
+    body = content
+
+    match = re.match(r'^---\n(.*?)\n---\n', content, re.DOTALL)
+    if match:
+        frontmatter = yaml.safe_load(match.group(1))
+        body = content[match.end():]
+
+    body = preprocess_markdown(body)
+    body = process_mermaid(body)
+
+    # 上传图片
+    def replace_img(m):
+        alt, src = m.group(1), m.group(2)
+        print(f"正在上传图片: {src}")
+        wechat_url = upload_image(token, src)
+        if not wechat_url:
+            return m.group(0)
+
+        is_mermaid = 'MERMAID_DIAGRAM' in alt or '/tmp' in src
+        wrapper_class = 'mermaid-wrapper' if is_mermaid else 'image-wrapper'
+        alt_text = '流程图' if is_mermaid else alt
+        shadow = '0 2px 8px rgba(0,0,0,0.1)' if is_mermaid else '0 2px 4px rgba(0,0,0,0.1)'
+
+        return f'''
+<section class="{wrapper_class}" style="text-align: center; margin: {'24' if is_mermaid else '20'}px 0;">
+  <img src="{wechat_url}" alt="{alt_text}" style="max-width: 100%; height: auto; display: inline-block; border-radius: 4px; box-shadow: {shadow};" />
+</section>'''
+
+    body = re.sub(r'!\[(.*?)\]\((.*?)\)', replace_img, body)
+    body = process_admonitions(body)
+    body = process_footnotes(body)
+
+    return frontmatter, body
+
+
+def publish_draft(token: str, article_data: dict) -> dict:
+    """发布草稿到微信"""
+    url = f"{WECHAT_API_BASE}/draft/add?access_token={token}"
+    json_bytes = json.dumps(article_data, ensure_ascii=False).encode('utf-8')
+    resp = requests.post(url, data=json_bytes, headers={'Content-Type': 'application/json; charset=utf-8'})
     return resp.json()
 
-# ================= 主流程 =================
 
-def main(file_path):
+def main(file_path: str) -> None:
     print(f"开始处理文件: {file_path}")
 
-    # 1. 加载配置
     try:
         config = load_config()
         token = get_access_token(config)
@@ -1122,21 +692,16 @@ def main(file_path):
         print(f"初始化失败: {e}")
         return
 
-    # 2. 读取文件
     with open(file_path, 'r') as f:
         raw_content = f.read()
 
-    # 3. 处理内容 (工作流)
     print("正在处理 Markdown 内容...")
     frontmatter, processed_body = process_content_workflow(raw_content, token)
-
-    # 4. 转换 HTML
     html_content = md_to_html(processed_body)
 
-    # 5. 准备发布
     thumb_media_id = frontmatter.get('thumb_media_id', config.get('default_thumb_media_id'))
     if not thumb_media_id:
-        print("警告: 未找到封面图 (thumb_media_id)，请在 frontmatter 中指定，否则发布可能失败")
+        print("警告: 未找到封面图 (thumb_media_id)")
 
     article = {
         "title": frontmatter.get('title', "未命名文章"),
@@ -1148,17 +713,15 @@ def main(file_path):
         "need_open_comment": frontmatter.get('open_comment', 0)
     }
 
-    payload = {"articles": [article]}
-
-    # 6. 发布
     print("正在发布到草稿箱...")
-    result = publish_draft(token, payload)
+    result = publish_draft(token, {"articles": [article]})
     print("发布结果:", json.dumps(result, indent=2, ensure_ascii=False))
 
     if 'media_id' in result:
         print(f"\n✅ 发布成功! Media ID: {result['media_id']}")
     else:
         print("\n❌ 发布失败")
+
 
 if __name__ == "__main__":
     import sys
