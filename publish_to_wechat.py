@@ -1036,41 +1036,47 @@ def md_to_html(md_content):
     # [关键修复] 将代码块内的换行符转换为 <br> 标签，空格转换为 &nbsp;
     # 问题：微信编辑器不识别 \n 换行符，且会压缩连续空格
     # 解决：用 <br> 标签强制换行，用 &nbsp; 保留缩进
-    # 注意：必须只转换文本内容，不能破坏 HTML 标签（如 <span style="...">）
+    # 关键：Pygments 会把空格包在 <span style="color: #BBB"> </span> 里
+    #       需要处理标签内部的空格，而不是跳过整个标签
     def convert_whitespace_in_code(html_content):
         """将代码块内的换行符转换为 <br>，空格转换为 &nbsp;"""
-        def process_text_only(content):
-            """处理文本节点，保护 HTML 标签不被修改"""
+        def process_pre_content(content):
+            """处理 pre 块内容，转换空格和换行，但保护标签属性"""
+            # 策略：用正则匹配标签，分别处理标签和文本
             result = []
-            i = 0
-            while i < len(content):
-                if content[i] == '<':
-                    # 找到标签结束位置，原样保留整个标签（包括标签内的空格）
-                    end = content.find('>', i)
-                    if end != -1:
-                        result.append(content[i:end+1])
-                        i = end + 1
-                    else:
-                        result.append(content[i])
-                        i += 1
-                else:
-                    # 文本内容：转换空格和换行符
-                    char = content[i]
-                    if char == '\t':
-                        result.append('&nbsp;&nbsp;&nbsp;&nbsp;')
-                    elif char == ' ':
-                        result.append('&nbsp;')
-                    elif char == '\n':
-                        result.append('<br>')
-                    else:
-                        result.append(char)
-                    i += 1
+            last_end = 0
+            # 匹配所有标签（开始标签、结束标签、自闭合标签）
+            for match in re.finditer(r'<[^>]+>', content):
+                # 处理标签之前的文本
+                text_before = content[last_end:match.start()]
+                if text_before:
+                    # 转换文本中的空格和换行
+                    text_before = text_before.replace('\t', '&nbsp;&nbsp;&nbsp;&nbsp;')
+                    text_before = text_before.replace(' ', '&nbsp;')
+                    text_before = text_before.replace('\n', '<br>')
+                    result.append(text_before)
+
+                # 处理标签本身
+                tag = match.group(0)
+                # 检查是否是 <span>...</span> 格式（可能包含只有空格的内容）
+                # 不修改标签，原样保留
+                result.append(tag)
+                last_end = match.end()
+
+            # 处理最后剩余的文本
+            text_after = content[last_end:]
+            if text_after:
+                text_after = text_after.replace('\t', '&nbsp;&nbsp;&nbsp;&nbsp;')
+                text_after = text_after.replace(' ', '&nbsp;')
+                text_after = text_after.replace('\n', '<br>')
+                result.append(text_after)
+
             return ''.join(result)
 
         def process_pre(match):
             pre_tag = match.group(1)
             content = match.group(2)
-            converted = process_text_only(content)
+            converted = process_pre_content(content)
             return f'{pre_tag}{converted}</pre>'
 
         return re.sub(r'(<pre[^>]*>)([\s\S]*?)</pre>', process_pre, html_content)
