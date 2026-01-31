@@ -1035,52 +1035,37 @@ def md_to_html(md_content):
 
     # [关键修复] 将代码块内的换行符转换为 <br> 标签，空格转换为 &nbsp;
     # 问题：微信编辑器不识别 \n 换行符，且会压缩连续空格
-    # 发现：微信会删除 <br> 后紧跟的 <span style="color: #BBB"> 空格标签
     # 解决：移除 Pygments 生成的空白 span 标签，直接用 &nbsp; 替代
     def convert_whitespace_in_code(html_content):
         """将代码块内的换行符转换为 <br>，空格转换为 &nbsp;"""
+
+        def convert_text_whitespace(text):
+            """将文本中的空白字符转换为 HTML 实体"""
+            if not text:
+                return ''
+            return (text
+                .replace('\t', '&nbsp;&nbsp;&nbsp;&nbsp;')
+                .replace(' ', '&nbsp;')
+                .replace('\n', '<br>'))
+
         def process_pre_content(content):
             """处理 pre 块内容"""
-            # 第一步：将 Pygments 的空白 span 标签替换为纯空格
-            # <span style="color: #BBB">  </span> → 直接提取里面的空格
-            def extract_whitespace_span(m):
-                # 提取 span 内的空白字符
-                whitespace = m.group(1)
-                return whitespace
-            # 匹配 color: #BBB 的 span（Pygments 用这个颜色标记空白）
-            content = re.sub(r'<span style="color: #BBB">([^<]*)</span>', extract_whitespace_span, content)
+            # 移除 Pygments 的空白 span 标签，保留其内容
+            content = re.sub(r'<span style="color: #BBB">([^<]*)</span>', r'\1', content)
 
-            # 第二步：用正则匹配标签，分别处理标签和文本
+            # 分离 HTML 标签和文本，只转换文本部分的空白
             result = []
             last_end = 0
             for match in re.finditer(r'<[^>]+>', content):
-                # 处理标签之前的文本
-                text_before = content[last_end:match.start()]
-                if text_before:
-                    text_before = text_before.replace('\t', '&nbsp;&nbsp;&nbsp;&nbsp;')
-                    text_before = text_before.replace(' ', '&nbsp;')
-                    text_before = text_before.replace('\n', '<br>')
-                    result.append(text_before)
-
-                # 保留标签本身
+                result.append(convert_text_whitespace(content[last_end:match.start()]))
                 result.append(match.group(0))
                 last_end = match.end()
-
-            # 处理最后剩余的文本
-            text_after = content[last_end:]
-            if text_after:
-                text_after = text_after.replace('\t', '&nbsp;&nbsp;&nbsp;&nbsp;')
-                text_after = text_after.replace(' ', '&nbsp;')
-                text_after = text_after.replace('\n', '<br>')
-                result.append(text_after)
+            result.append(convert_text_whitespace(content[last_end:]))
 
             return ''.join(result)
 
         def process_pre(match):
-            pre_tag = match.group(1)
-            content = match.group(2)
-            converted = process_pre_content(content)
-            return f'{pre_tag}{converted}</pre>'
+            return f'{match.group(1)}{process_pre_content(match.group(2))}</pre>'
 
         return re.sub(r'(<pre[^>]*>)([\s\S]*?)</pre>', process_pre, html_content)
 
