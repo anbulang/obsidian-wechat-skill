@@ -1033,19 +1033,19 @@ def md_to_html(md_content):
     # 解决：</strong>： → ：</strong>（把冒号纳入加粗范围内）
     final_html = re.sub(r'</strong>\s*(<br\s*/?>)?\s*([：:])', r'\2</strong>', final_html)
 
-    # [关键修复] 将代码块内的换行符转换为 <br> 标签
-    # 问题：微信编辑器不识别 \n 换行符
-    # 解决：用 <br> 标签强制换行，保留原始空格缩进
+    # [关键修复] 将代码块内的换行符转换为 <br> 标签，空格转换为 &nbsp;
+    # 问题：微信编辑器不识别 \n 换行符，且会压缩连续空格
+    # 解决：用 <br> 标签强制换行，用 &nbsp; 保留缩进
     # 注意：必须只转换文本内容，不能破坏 HTML 标签（如 <span style="...">）
     def convert_whitespace_in_code(html_content):
-        """将代码块内的换行符转换为 <br>，保留原始空格"""
+        """将代码块内的换行符转换为 <br>，空格转换为 &nbsp;"""
         def process_text_only(content):
-            """只处理换行符，保护 HTML 标签不被修改"""
+            """处理文本节点，保护 HTML 标签不被修改"""
             result = []
             i = 0
             while i < len(content):
                 if content[i] == '<':
-                    # 找到标签结束位置，原样保留整个标签
+                    # 找到标签结束位置，原样保留整个标签（包括标签内的空格）
                     end = content.find('>', i)
                     if end != -1:
                         result.append(content[i:end+1])
@@ -1054,9 +1054,13 @@ def md_to_html(md_content):
                         result.append(content[i])
                         i += 1
                 else:
-                    # 文本内容：只转换换行符，保留原始空格
+                    # 文本内容：转换空格和换行符
                     char = content[i]
-                    if char == '\n':
+                    if char == '\t':
+                        result.append('&nbsp;&nbsp;&nbsp;&nbsp;')
+                    elif char == ' ':
+                        result.append('&nbsp;')
+                    elif char == '\n':
                         result.append('<br>')
                     else:
                         result.append(char)
