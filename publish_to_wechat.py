@@ -711,10 +711,18 @@ def process_content_workflow(content, token):
 def md_to_html(md_content):
     """Markdown 转 HTML"""
     # 转换剩余的 Markdown (如列表、粗体等)
-    # 禁用 codehilite：微信编辑器对 <span> 标签支持不好，会破坏代码格式
-    # 只用 fenced_code 生成简单的 <pre><code> 结构，保留原始缩进
+    # 启用 codehilite 扩展以支持代码高亮（GitHub 风格）
+    # 启用 fenced_code 以支持 ``` 语法
     html = markdown.markdown(md_content,
-        extensions=['fenced_code', 'tables']
+        extensions=['fenced_code', 'tables', 'codehilite'],
+        extension_configs={
+            'codehilite': {
+                'css_class': 'highlight',
+                'guess_lang': True,
+                'use_pygments': True,
+                'noclasses': True  # 关键：生成内联样式
+            }
+        }
     )
 
     # 添加全局背景色 (暖杏色/信纸色)
@@ -1025,15 +1033,14 @@ def md_to_html(md_content):
     # 解决：</strong>： → ：</strong>（把冒号纳入加粗范围内）
     final_html = re.sub(r'</strong>\s*(<br\s*/?>)?\s*([：:])', r'\2</strong>', final_html)
 
-    # [关键修复] 将代码块内的换行符和缩进转换为 HTML 实体
-    # 问题：微信编辑器不识别 \n 换行符，white-space: pre 也不生效
-    #       同时微信会压缩连续空格，导致代码缩进丢失
-    # 解决：用 <br> 标签强制换行，用 &nbsp; 保留缩进空格
+    # [关键修复] 将代码块内的换行符转换为 <br> 标签
+    # 问题：微信编辑器不识别 \n 换行符
+    # 解决：用 <br> 标签强制换行，保留原始空格缩进
     # 注意：必须只转换文本内容，不能破坏 HTML 标签（如 <span style="...">）
     def convert_whitespace_in_code(html_content):
-        """将代码块内的换行符转换为 <br>，文本中的空格转换为 &nbsp;"""
+        """将代码块内的换行符转换为 <br>，保留原始空格"""
         def process_text_only(content):
-            """只处理文本节点，保护 HTML 标签不被修改"""
+            """只处理换行符，保护 HTML 标签不被修改"""
             result = []
             i = 0
             while i < len(content):
@@ -1047,13 +1054,9 @@ def md_to_html(md_content):
                         result.append(content[i])
                         i += 1
                 else:
-                    # 文本内容：转换空格和制表符
+                    # 文本内容：只转换换行符，保留原始空格
                     char = content[i]
-                    if char == '\t':
-                        result.append('&nbsp;&nbsp;&nbsp;&nbsp;')
-                    elif char == ' ':
-                        result.append('&nbsp;')
-                    elif char == '\n':
+                    if char == '\n':
                         result.append('<br>')
                     else:
                         result.append(char)
