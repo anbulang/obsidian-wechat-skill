@@ -1037,18 +1037,42 @@ def md_to_html(md_content):
     # 问题：微信编辑器不识别 \n 换行符，white-space: pre 也不生效
     #       同时微信会压缩连续空格，导致代码缩进丢失
     # 解决：用 <br> 标签强制换行，用 &nbsp; 保留缩进空格
+    # 注意：必须只转换文本内容，不能破坏 HTML 标签（如 <span style="...">）
     def convert_whitespace_in_code(html_content):
-        """将代码块内的换行符转换为 <br>，空格转换为 &nbsp;"""
+        """将代码块内的换行符转换为 <br>，文本中的空格转换为 &nbsp;"""
+        def process_text_only(content):
+            """只处理文本节点，保护 HTML 标签不被修改"""
+            result = []
+            i = 0
+            while i < len(content):
+                if content[i] == '<':
+                    # 找到标签结束位置，原样保留整个标签
+                    end = content.find('>', i)
+                    if end != -1:
+                        result.append(content[i:end+1])
+                        i = end + 1
+                    else:
+                        result.append(content[i])
+                        i += 1
+                else:
+                    # 文本内容：转换空格和制表符
+                    char = content[i]
+                    if char == '\t':
+                        result.append('&nbsp;&nbsp;&nbsp;&nbsp;')
+                    elif char == ' ':
+                        result.append('&nbsp;')
+                    elif char == '\n':
+                        result.append('<br>')
+                    else:
+                        result.append(char)
+                    i += 1
+            return ''.join(result)
+
         def process_pre(match):
             pre_tag = match.group(1)
             content = match.group(2)
-            # 先处理制表符（1个tab = 4个空格）
-            content = content.replace('\t', '    ')
-            # 将空格转换为 &nbsp;（保留缩进）
-            content = content.replace(' ', '&nbsp;')
-            # 将 \n 转换为 <br>（不保留原始 \n，避免压缩时被移除）
-            content = content.replace('\n', '<br>')
-            return f'{pre_tag}{content}</pre>'
+            converted = process_text_only(content)
+            return f'{pre_tag}{converted}</pre>'
 
         return re.sub(r'(<pre[^>]*>)([\s\S]*?)</pre>', process_pre, html_content)
 
