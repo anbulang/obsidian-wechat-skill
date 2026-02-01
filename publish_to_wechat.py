@@ -331,7 +331,7 @@ def process_admonitions(content: str) -> str:
   </section>
 </section>'''
 
-    return re.sub(r'```ad-(\w+)(?:[ \t]+title:[ \t]*(.*))?\\n([\\s\\S]*?)```', repl, content)
+    return re.sub(r'```ad-(\w+)(?:[ \t]+title:[ \t]*(.*))?\n([\s\S]*?)```', repl, content)
 
 
 def process_footnotes(content: str) -> str:
