@@ -1,1 +1,10 @@
+# 虚拟环境
+.venv/
 config/wechat-credentials.local.venv/
+
+# 敏感凭证文件
+*.local.md
+config/wechat-credentials.local.md
+
+# 系统文件
+.DS_Store
