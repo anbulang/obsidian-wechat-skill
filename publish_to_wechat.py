@@ -853,7 +853,31 @@ def main(file_path: str) -> None:
     frontmatter, processed_body = process_content_workflow(raw_content, token)
     html_content = md_to_html(processed_body)
 
-    thumb_media_id = frontmatter.get('thumb_media_id', config.get('default_thumb_media_id'))
+    thumb_media_id = frontmatter.get('thumb_media_id')
+
+    # 封面获取优先级：
+    # 1. frontmatter 中的 thumb_media_id
+    # 2. frontmatter 中的 banner/banner_path（用户提供图片）
+    # 3. Unsplash 自动搜索
+    # 4. 默认封面
+
+    if not thumb_media_id:
+        # 尝试用户提供的 banner 图片
+        banner_path = frontmatter.get('banner') or frontmatter.get('banner_path')
+        if banner_path:
+            print(f"正在上传用户封面: {banner_path}")
+            thumb_media_id = upload_cover_material(token, banner_path)
+
+    if not thumb_media_id:
+        # 尝试 Unsplash 自动搜索
+        title = frontmatter.get('title', "")
+        digest = frontmatter.get('digest', "")
+        thumb_media_id = get_auto_cover(config, token, title, digest)
+
+    if not thumb_media_id:
+        # 使用默认封面
+        thumb_media_id = config.get('default_thumb_media_id')
+
     if not thumb_media_id:
         print("警告: 未找到封面图 (thumb_media_id)")
 
