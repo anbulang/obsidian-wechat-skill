@@ -15,6 +15,10 @@ import markdown
 
 CONFIG_FILE = "config/wechat-credentials.local.md"
 WECHAT_API_BASE = "https://api.weixin.qq.com/cgi-bin"
+UNSPLASH_API_BASE = "https://api.unsplash.com"
+
+# 中文停用词（用于关键词提取）
+CHINESE_STOPWORDS = {'的', '了', '是', '在', '我', '有', '和', '就', '不', '人', '都', '一', '一个', '上', '也', '很', '到', '说', '要', '去', '你', '会', '着', '没有', '看', '好', '自己', '这', '那', '什么', '如何', '为什么', '怎么', '怎样'}
 
 # Admonition SVG 图标
 ADMONITION_ICONS = {
@@ -172,6 +176,156 @@ def _download_image_for_upload(image_url: str) -> dict | None:
     except Exception as e:
         print(f"下载图片失败: {e}")
         return None
+
+
+# ================= 自动封面功能 =================
+
+def extract_keywords(title: str, digest: str = "") -> list[str]:
+    """从标题和摘要提取关键词"""
+    text = f"{title} {digest}"
+
+    # 提取英文单词
+    english_words = re.findall(r'[a-zA-Z]{3,}', text)
+
+    # 提取中文词（简单分词：2-4字词组）
+    chinese_text = re.sub(r'[a-zA-Z0-9\s\W]+', ' ', text)
+    chinese_words = []
+    for segment in chinese_text.split():
+        if len(segment) >= 2:
+            # 简单切分：优先取4字、3字、2字词
+            for length in [4, 3, 2]:
+                for i in range(len(segment) - length + 1):
+                    word = segment[i:i + length]
+                    if word not in CHINESE_STOPWORDS:
+                        chinese_words.append(word)
+                        break
+
+    # 合并并去重，优先英文（Unsplash 搜索效果更好）
+    keywords = []
+    seen = set()
+    for word in english_words + chinese_words:
+        word_lower = word.lower()
+        if word_lower not in seen and word_lower not in CHINESE_STOPWORDS:
+            seen.add(word_lower)
+            keywords.append(word)
+            if len(keywords) >= 5:
+                break
+
+    return keywords if keywords else ['technology', 'article']
+
+
+def search_unsplash_cover(access_key: str, keywords: list[str]) -> str | None:
+    """从 Unsplash 搜索横向封面图片"""
+    if not access_key:
+        return None
+
+    query = ' '.join(keywords[:3])  # 取前3个关键词
+    print(f"  搜索 Unsplash: {query}")
+
+    try:
+        resp = requests.get(
+            f"{UNSPLASH_API_BASE}/search/photos",
+            params={
+                'query': query,
+                'orientation': 'landscape',  # 横向图片适合微信封面
+                'per_page': 1
+            },
+            headers={'Authorization': f'Client-ID {access_key}'},
+            timeout=10
+        )
+
+        if resp.status_code == 403:
+            print("  Unsplash API 限流，跳过自动封面")
+            return None
+
+        data = resp.json()
+        if data.get('results'):
+            # 使用 regular 尺寸（1080px 宽度，适合微信）
+            image_url = data['results'][0]['urls'].get('regular')
+            print(f"  ✓ 找到匹配图片")
+            return image_url
+
+        print(f"  未找到匹配图片")
+        return None
+    except Exception as e:
+        print(f"  Unsplash 搜索失败: {e}")
+        return None
+
+
+def download_image_to_temp(image_url: str) -> str | None:
+    """下载图片到临时文件"""
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'}
+        resp = requests.get(image_url, headers=headers, timeout=30)
+
+        if resp.status_code != 200:
+            return None
+
+        with tempfile.NamedTemporaryFile(mode='wb', suffix='.jpg', delete=False) as f:
+            f.write(resp.content)
+            return f.name
+    except Exception as e:
+        print(f"  下载图片失败: {e}")
+        return None
+
+
+def upload_cover_material(token: str, image_path: str) -> str | None:
+    """上传封面图片为微信永久素材，返回 media_id"""
+    url = f"{WECHAT_API_BASE}/material/add_material?access_token={token}&type=image"
+
+    try:
+        with open(image_path, 'rb') as f:
+            files = {'media': ('cover.jpg', f, 'image/jpeg')}
+            resp = requests.post(url, files=files, timeout=30)
+
+        data = resp.json()
+        if 'media_id' in data:
+            print(f"  ✓ 封面上传成功: {data['media_id'][:20]}...")
+            return data['media_id']
+
+        print(f"  封面上传失败: {data}")
+        return None
+    except Exception as e:
+        print(f"  封面上传失败: {e}")
+        return None
+
+
+def get_auto_cover(config: dict, token: str, title: str, digest: str = "") -> str | None:
+    """自动获取封面图片的 media_id"""
+    if not config.get('enable_auto_cover', False):
+        return None
+
+    access_key = config.get('unsplash_access_key', '')
+    if not access_key:
+        print("  未配置 Unsplash API Key，跳过自动封面")
+        return None
+
+    print("\n🎨 自动搜索封面图片...")
+
+    # 1. 提取关键词
+    keywords = extract_keywords(title, digest)
+    print(f"  关键词: {', '.join(keywords)}")
+
+    # 2. 搜索 Unsplash
+    image_url = search_unsplash_cover(access_key, keywords)
+    if not image_url:
+        return None
+
+    # 3. 下载图片
+    temp_path = download_image_to_temp(image_url)
+    if not temp_path:
+        return None
+
+    # 4. 上传到微信
+    media_id = upload_cover_material(token, temp_path)
+
+    # 5. 清理临时文件
+    try:
+        os.unlink(temp_path)
+    except:
+        pass
+
+    return media_id
 
 
 # ================= Mermaid 渲染 =================
