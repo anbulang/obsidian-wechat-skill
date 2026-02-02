@@ -20,6 +20,23 @@ UNSPLASH_API_BASE = "https://api.unsplash.com"
 # 中文停用词（用于关键词提取）
 CHINESE_STOPWORDS = {'的', '了', '是', '在', '我', '有', '和', '就', '不', '人', '都', '一', '一个', '上', '也', '很', '到', '说', '要', '去', '你', '会', '着', '没有', '看', '好', '自己', '这', '那', '什么', '如何', '为什么', '怎么', '怎样'}
 
+# 中文技术词汇到英文的映射（提升 Unsplash 搜索效果）
+KEYWORD_TRANSLATIONS = {
+    '认证': 'authentication', '登录': 'login', '安全': 'security',
+    '架构': 'architecture', '设计': 'design', '系统': 'system',
+    '数据': 'data', '分析': 'analytics', '人工智能': 'artificial intelligence',
+    '机器学习': 'machine learning', '深度学习': 'deep learning',
+    '编程': 'programming', '开发': 'development', '代码': 'code',
+    '网络': 'network', '云计算': 'cloud computing', '服务器': 'server',
+    '数据库': 'database', '接口': 'API', '前端': 'frontend',
+    '后端': 'backend', '移动': 'mobile', '应用': 'application',
+    '用户': 'user', '产品': 'product', '项目': 'project',
+    '团队': 'team', '管理': 'management', '效率': 'efficiency',
+    '创新': 'innovation', '技术': 'technology', '解决方案': 'solution',
+    '统一': 'unified', '中心': 'center', '平台': 'platform',
+    '集成': 'integration', '门户': 'portal', '单点登录': 'SSO',
+}
+
 # Admonition SVG 图标
 ADMONITION_ICONS = {
     'pencil': '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="callout-icon"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path><path d="m15 5 4 4"></path></svg>',
@@ -181,37 +198,32 @@ def _download_image_for_upload(image_url: str) -> dict | None:
 # ================= 自动封面功能 =================
 
 def extract_keywords(title: str, digest: str = "") -> list[str]:
-    """从标题和摘要提取关键词"""
+    """从标题和摘要提取关键词，优先翻译为英文"""
     text = f"{title} {digest}"
 
-    # 提取英文单词
+    # 1. 先尝试匹配中文技术词汇并翻译
+    translated = []
+    for cn, en in KEYWORD_TRANSLATIONS.items():
+        if cn in text:
+            translated.append(en)
+            if len(translated) >= 3:
+                break
+
+    # 2. 提取英文单词
     english_words = re.findall(r'[a-zA-Z]{3,}', text)
 
-    # 提取中文词（简单分词：2-4字词组）
-    chinese_text = re.sub(r'[a-zA-Z0-9\s\W]+', ' ', text)
-    chinese_words = []
-    for segment in chinese_text.split():
-        if len(segment) >= 2:
-            # 简单切分：优先取4字、3字、2字词
-            for length in [4, 3, 2]:
-                for i in range(len(segment) - length + 1):
-                    word = segment[i:i + length]
-                    if word not in CHINESE_STOPWORDS:
-                        chinese_words.append(word)
-                        break
-
-    # 合并并去重，优先英文（Unsplash 搜索效果更好）
+    # 3. 合并：翻译词 + 英文词
     keywords = []
     seen = set()
-    for word in english_words + chinese_words:
+    for word in translated + english_words:
         word_lower = word.lower()
-        if word_lower not in seen and word_lower not in CHINESE_STOPWORDS:
+        if word_lower not in seen:
             seen.add(word_lower)
             keywords.append(word)
             if len(keywords) >= 5:
                 break
 
-    return keywords if keywords else ['technology', 'article']
+    return keywords if keywords else ['technology', 'abstract']
 
 
 def search_unsplash_cover(access_key: str, keywords: list[str]) -> str | None:
