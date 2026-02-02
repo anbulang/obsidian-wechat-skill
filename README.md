@@ -78,6 +78,20 @@ digest: "Article summary"
    curl -s ifconfig.me
    ```
 
+### Using as Claude Code Skill
+
+This project is a [Claude Code Skill](https://docs.anthropic.com/en/docs/claude-code). To use it:
+
+1. **Install the skill** - Copy this folder to your Claude Code skills directory
+2. **Trigger the skill** - Use natural language commands:
+   - "Convert this article to WeChat format"
+   - "Publish to WeChat drafts"
+   - "Generate WeChat HTML"
+3. **Claude will automatically**:
+   - Read and parse your Markdown file
+   - Convert to WeChat-compatible HTML
+   - Upload images and publish to drafts
+
 ---
 
 ## 中文
@@ -173,6 +187,31 @@ digest: "文章摘要"
 | 40164 | IP 不在白名单 | 添加公网 IP 到白名单 |
 | 40001 | Token 无效 | 重新获取 access_token |
 | 45009 | 调用超限 | 等待后重试 |
+
+### 作为 Claude Code Skill 使用
+
+本项目是一个 [Claude Code Skill](https://docs.anthropic.com/en/docs/claude-code)。使用方法：
+
+1. **安装 Skill** - 将此文件夹复制到 Claude Code skills 目录
+2. **触发 Skill** - 使用自然语言命令：
+   - "把这篇文章转换成微信公众号格式"
+   - "发布到微信公众号草稿箱"
+   - "生成公众号 HTML"
+   - 提到"微信公众号排版"
+3. **Claude 会自动**：
+   - 读取并解析 Markdown 文件
+   - 转换为微信兼容 HTML
+   - 上传图片并发布到草稿箱
+
+**Skill 目录结构：**
+
+```
+~/.claude/skills/obsidian-wechat/
+├── SKILL.md          # Skill 定义（必需）
+├── config/           # 凭证配置
+├── references/       # 参考文档
+└── publish_to_wechat.py  # 发布脚本
+```
 
 ---
 
