@@ -210,10 +210,10 @@ def translate_to_english(text: str) -> str | None:
     if text in KEYWORD_TRANSLATIONS:
         return KEYWORD_TRANSLATIONS[text]
 
-    # 2. 尝试在线翻译（translators 库）
+    # 2. 尝试在线翻译（translators 库，优先 Google）
     try:
         import translators as ts
-        result = ts.translate_text(text, from_language='zh', to_language='en', translator='bing')
+        result = ts.translate_text(text, from_language='zh', to_language='en', translator='google')
         if result and result != text:
             return result
     except Exception:
