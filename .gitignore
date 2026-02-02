@@ -1,10 +1,17 @@
 # 虚拟环境
 .venv/
-config/wechat-credentials.local.venv/
+venv/
 
 # 敏感凭证文件
 *.local.md
 config/wechat-credentials.local.md
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
 
 # 系统文件
 .DS_Store

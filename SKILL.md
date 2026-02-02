@@ -343,3 +343,68 @@ python3 publish_to_wechat.py <Markdown文件路径>
 1. `wechat-credentials.local.md` 包含敏感凭证，已加入 `.gitignore`
 2. access_token 缓存在本地，有效期 7200 秒
 3. 建议定期更换 AppSecret
+
+---
+
+## 自动封面功能
+
+当文章没有指定封面图时，系统支持从 Unsplash 自动获取高质量封面图。
+
+### 启用方式
+
+在 `config/wechat-credentials.local.md` 中配置：
+
+```yaml
+unsplash_access_key: "your_unsplash_access_key"
+enable_auto_cover: true
+```
+
+### 工作原理
+
+1. **关键词提取** - 从文章标题和内容中提取关键词
+2. **中文翻译** - 使用三层降级策略将中文关键词翻译为英文：
+   - 内置字典快速匹配（技术、设计、商业等常见词汇）
+   - Google 翻译 API 实时翻译
+   - 随机分类降级（nature, technology, business, minimal）
+3. **图片搜索** - 调用 Unsplash API 搜索匹配图片
+4. **自动上传** - 下载图片并上传到微信永久素材库
+
+### 获取 Unsplash API Key
+
+1. 访问 [Unsplash Developers](https://unsplash.com/developers)
+2. 注册并创建应用
+3. 复制 Access Key 到配置文件
+
+---
+
+## 依赖安装
+
+### 使用 pip 安装
+
+```bash
+# 创建虚拟环境（推荐）
+python3 -m venv .venv
+source .venv/bin/activate
+
+# 安装依赖
+pip install -r requirements.txt
+```
+
+### 依赖列表
+
+| 包名 | 用途 |
+|------|------|
+| requests | HTTP 请求（微信 API、Unsplash API） |
+| pyyaml | YAML frontmatter 解析 |
+| markdown | Markdown 基础转换 |
+| pygments | 代码语法高亮 |
+| translators | 中文关键词翻译（自动封面） |
+| playwright | 浏览器自动化（Mermaid 渲染备选方案） |
+
+### Playwright 初始化
+
+如需使用 Playwright 渲染 Mermaid（备选方案）：
+
+```bash
+playwright install chromium
+```
