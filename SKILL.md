@@ -91,26 +91,11 @@ graph TD
 </section>
 ```
 
-### 4. 代码块（带行号）
+### 4. 代码块（Pygments 语法高亮）
 
-**输入格式：**
-````markdown
-```python
-def hello():
-    print("Hello, World!")
-```
-````
+代码块使用 **Pygments** 生成真正的语法高亮，由 `publish_to_wechat.py` 脚本自动处理。
 
-**输出 HTML：**
-```html
-<section style="margin: 20px 0; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-  <section style="background: #21252b; padding: 8px 16px;">
-    <span style="color: #9da5b4; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;">Python</span>
-  </section>
-  <pre style="margin: 0; background: #282c34; padding: 16px; overflow-x: auto;"><code style="font-family: Consolas, 'SF Mono', monospace; font-size: 14px; line-height: 1.6; color: #abb2bf;"><div><span style="display: inline-block; width: 32px; color: #636d83; text-align: right; margin-right: 16px;">1</span>def hello():</div>
-<div><span style="display: inline-block; width: 32px; color: #636d83; text-align: right; margin-right: 16px;">2</span>    print("Hello, World!")</div></code></pre>
-</section>
-```
+**重要：** 不要手动生成代码块 HTML，必须通过脚本调用 Pygments 生成带颜色的语法高亮。
 
 ### 5. 链接转脚注
 
@@ -214,9 +199,11 @@ def hello():
 
 1. 微信公众号编辑器会过滤某些 CSS 属性，尽量使用内联样式
 2. 图片需要已上传到可访问的服务器
-3. 代码块不支持真正的语法高亮，使用背景色区分即可
+3. **代码块必须通过 `publish_to_wechat.py` 脚本处理**，脚本使用 Pygments 生成真正的语法高亮（彩色代码）
 4. 表格宽度可能需要调整以适应移动端
 5. 避免使用 JavaScript，微信会过滤
+
+**⚠️ 重要：执行此 Skill 时，必须调用 `./publish.sh` 或 `python publish_to_wechat.py` 脚本，不要手动实现 Markdown 转换逻辑。**
 
 ---
 
