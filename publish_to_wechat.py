@@ -5,6 +5,7 @@ import json
 import base64
 import tempfile
 import zlib
+import random
 from html.parser import HTMLParser
 
 import requests
@@ -36,6 +37,12 @@ KEYWORD_TRANSLATIONS = {
     '统一': 'unified', '中心': 'center', '平台': 'platform',
     '集成': 'integration', '门户': 'portal', '单点登录': 'SSO',
 }
+
+# Unsplash 通用分类（翻译失败时的降级选项）
+UNSPLASH_FALLBACK_CATEGORIES = [
+    'technology', 'business', 'abstract', 'minimal',
+    'workspace', 'nature', 'architecture', 'gradient'
+]
 
 # Admonition SVG 图标
 ADMONITION_ICONS = {
@@ -197,33 +204,55 @@ def _download_image_for_upload(image_url: str) -> dict | None:
 
 # ================= 自动封面功能 =================
 
+def translate_to_english(text: str) -> str | None:
+    """将中文翻译为英文，使用多层降级策略"""
+    # 1. 先查硬编码字典（快速缓存）
+    if text in KEYWORD_TRANSLATIONS:
+        return KEYWORD_TRANSLATIONS[text]
+
+    # 2. 尝试在线翻译（translators 库）
+    try:
+        import translators as ts
+        result = ts.translate_text(text, from_language='zh', to_language='en', translator='bing')
+        if result and result != text:
+            return result
+    except Exception:
+        pass
+
+    return None  # 翻译失败
+
+
 def extract_keywords(title: str, digest: str = "") -> list[str]:
-    """从标题和摘要提取关键词，优先翻译为英文"""
+    """从标题和摘要提取关键词，自动翻译为英文"""
     text = f"{title} {digest}"
 
-    # 1. 先尝试匹配中文技术词汇并翻译
-    translated = []
-    for cn, en in KEYWORD_TRANSLATIONS.items():
-        if cn in text:
-            translated.append(en)
-            if len(translated) >= 3:
-                break
-
-    # 2. 提取英文单词
+    # 1. 提取英文单词
     english_words = re.findall(r'[a-zA-Z]{3,}', text)
 
-    # 3. 合并：翻译词 + 英文词
+    # 2. 提取中文并翻译
+    chinese_text = re.sub(r'[a-zA-Z0-9\s\W]+', '', text)
+    translated = []
+    if chinese_text:
+        result = translate_to_english(chinese_text[:20])
+        if result:
+            translated = result.split()[:3]
+
+    # 3. 合并去重
     keywords = []
     seen = set()
-    for word in translated + english_words:
+    for word in english_words + translated:
         word_lower = word.lower()
-        if word_lower not in seen:
+        if word_lower not in seen and len(word) >= 2:
             seen.add(word_lower)
             keywords.append(word)
             if len(keywords) >= 5:
                 break
 
-    return keywords if keywords else ['technology', 'abstract']
+    # 4. 如果没有关键词，从通用分类随机选一个
+    if not keywords:
+        keywords = [random.choice(UNSPLASH_FALLBACK_CATEGORIES)]
+
+    return keywords
 
 
 def search_unsplash_cover(access_key: str, keywords: list[str]) -> str | None:
