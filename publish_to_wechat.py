@@ -904,8 +904,26 @@ def main(file_path: str) -> None:
 
     if not thumb_media_id:
         # 尝试用户提供的 banner 图片
-        banner_path = frontmatter.get('banner') or frontmatter.get('banner_path')
-        if banner_path:
+        banner = frontmatter.get('banner')  # 网络 URL
+        banner_path = frontmatter.get('banner_path')  # 本地路径
+
+        if banner and banner.startswith(('http://', 'https://')):
+            # 网络图片：先下载再上传
+            print(f"正在下载用户封面: {banner}")
+            temp_path = download_image_to_temp(banner)
+            if temp_path:
+                print(f"正在上传用户封面...")
+                thumb_media_id = upload_cover_material(token, temp_path)
+                try:
+                    os.unlink(temp_path)
+                except:
+                    pass
+                if thumb_media_id:
+                    print(f"  ✓ 封面上传成功: {thumb_media_id[:20]}...")
+                else:
+                    print(f"  封面上传失败")
+        elif banner_path:
+            # 本地图片：直接上传
             print(f"正在上传用户封面: {banner_path}")
             thumb_media_id = upload_cover_material(token, banner_path)
 
