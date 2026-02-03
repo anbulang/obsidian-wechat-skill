@@ -479,17 +479,17 @@ def render_mermaid_with_kroki(mermaid_code: str) -> str | None:
 
 
 def render_mermaid_locally(mermaid_code: str) -> str | None:
-    """多层降级策略渲染 Mermaid: Playwright -> Kroki.io -> None"""
-    print("  [1/2] 尝试使用 Playwright 本地渲染...")
-    result = render_mermaid_with_playwright(mermaid_code)
-    if result:
-        print("  ✓ Playwright 渲染成功")
-        return result
-
-    print("  [2/2] 尝试使用 Kroki.io API...")
+    """多层降级策略渲染 Mermaid: Kroki.io -> Playwright -> None"""
+    print("  [1/2] 尝试使用 Kroki.io 在线渲染...")
     result = render_mermaid_with_kroki(mermaid_code)
     if result:
         print("  ✓ Kroki.io 渲染成功")
+        return result
+
+    print("  [2/2] 尝试使用 Playwright 本地渲染...")
+    result = render_mermaid_with_playwright(mermaid_code)
+    if result:
+        print("  ✓ Playwright 渲染成功")
         return result
 
     print("  所有渲染方案失败，将显示为代码块")
