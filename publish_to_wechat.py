@@ -255,14 +255,8 @@ def extract_keywords(title: str, digest: str = "") -> list[str]:
     return keywords
 
 
-def search_unsplash_cover(access_key: str, keywords: list[str]) -> str | None:
-    """从 Unsplash 搜索横向封面图片"""
-    if not access_key:
-        return None
-
-    query = ' '.join(keywords[:3])  # 取前3个关键词
-    print(f"  搜索 Unsplash: {query}")
-
+def _search_unsplash(access_key: str, query: str) -> str | None:
+    """执行单次 Unsplash 搜索"""
     try:
         resp = requests.get(
             f"{UNSPLASH_API_BASE}/search/photos",
@@ -282,15 +276,37 @@ def search_unsplash_cover(access_key: str, keywords: list[str]) -> str | None:
         data = resp.json()
         if data.get('results'):
             # 使用 regular 尺寸（1080px 宽度，适合微信）
-            image_url = data['results'][0]['urls'].get('regular')
-            print(f"  ✓ 找到匹配图片")
-            return image_url
-
-        print(f"  未找到匹配图片")
+            return data['results'][0]['urls'].get('regular')
         return None
     except Exception as e:
         print(f"  Unsplash 搜索失败: {e}")
         return None
+
+
+def search_unsplash_cover(access_key: str, keywords: list[str]) -> str | None:
+    """从 Unsplash 搜索横向封面图片，支持降级到通用分类"""
+    if not access_key:
+        return None
+
+    # 1. 尝试用关键词搜索
+    query = ' '.join(keywords[:3])
+    print(f"  搜索 Unsplash: {query}")
+    image_url = _search_unsplash(access_key, query)
+    if image_url:
+        print(f"  ✓ 找到匹配图片")
+        return image_url
+
+    # 2. 未找到，降级到通用分类随机搜索
+    print(f"  未找到匹配图片，尝试通用分类...")
+    fallback_category = random.choice(UNSPLASH_FALLBACK_CATEGORIES)
+    print(f"  搜索 Unsplash: {fallback_category}")
+    image_url = _search_unsplash(access_key, fallback_category)
+    if image_url:
+        print(f"  ✓ 从 '{fallback_category}' 分类找到图片")
+        return image_url
+
+    print(f"  通用分类也未找到图片")
+    return None
 
 
 def download_image_to_temp(image_url: str) -> str | None:
