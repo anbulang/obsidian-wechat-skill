@@ -8,6 +8,8 @@ import zlib
 import random
 import html as html_lib
 import mimetypes
+import time
+from datetime import datetime
 from urllib.parse import unquote, urlparse
 from html.parser import HTMLParser
 
@@ -20,6 +22,10 @@ import markdown
 CONFIG_FILE = "config/wechat-credentials.local.md"
 WECHAT_API_BASE = "https://api.weixin.qq.com/cgi-bin"
 UNSPLASH_API_BASE = "https://api.unsplash.com"
+DEFAULT_HTTP_TIMEOUT = 30
+TOKEN_REFRESH_MARGIN_SECONDS = 300
+TOKEN_INVALID_ERRCODES = {40001, 42001}
+SENSITIVE_KEYS = {"secret", "access_token", "token", "appid"}
 
 # 中文停用词（用于关键词提取）
 CHINESE_STOPWORDS = {'的', '了', '是', '在', '我', '有', '和', '就', '不', '人', '都', '一', '一个', '上', '也', '很', '到', '说', '要', '去', '你', '会', '着', '没有', '看', '好', '自己', '这', '那', '什么', '如何', '为什么', '怎么', '怎样'}
@@ -192,6 +198,77 @@ def build_wechat_image_html(wechat_url: str, alt: str, source: str) -> str:
   <img src="{html_lib.escape(wechat_url, quote=True)}" alt="{html_lib.escape(alt_text, quote=True)}" style="max-width: 100%; height: auto; display: inline-block; border-radius: 4px; box-shadow: {shadow};" />
 </section>'''
 
+
+class WechatRequestError(RuntimeError):
+    """HTTP/JSON 层错误，消息中不包含完整 token/secret。"""
+
+
+def _redact_value(value):
+    if isinstance(value, dict):
+        return {
+            key: ("<redacted>" if key in SENSITIVE_KEYS else _redact_value(val))
+            for key, val in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_value(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_redact_value(item) for item in value)
+    return value
+
+
+def _redact_text(value: str) -> str:
+    value = re.sub(r'((?:access_token|secret|token|appid)=)[^&\s]+', r'\1<redacted>', value)
+    value = re.sub(r'("?(?:access_token|secret|token|appid)"?\s*[:=]\s*)["\']?[^,"\'\s}]+', r'\1<redacted>', value)
+    return value
+
+
+def _safe_error_detail(data) -> str:
+    try:
+        return _redact_text(json.dumps(_redact_value(data), ensure_ascii=False))
+    except Exception:
+        return _redact_text(str(data))
+
+
+def request_response(method: str, url: str, *, timeout: int = DEFAULT_HTTP_TIMEOUT, **kwargs) -> requests.Response:
+    try:
+        response = requests.request(method, url, timeout=timeout, **kwargs)
+        response.raise_for_status()
+        return response
+    except requests.RequestException as e:
+        raise WechatRequestError(f"HTTP 请求失败: {_redact_text(str(e))}") from e
+
+
+def request_json(method: str, url: str, *, timeout: int = DEFAULT_HTTP_TIMEOUT, **kwargs) -> dict:
+    response = request_response(method, url, timeout=timeout, **kwargs)
+    try:
+        return response.json()
+    except ValueError as e:
+        raise WechatRequestError(f"响应不是合法 JSON: {_redact_text(response.text[:300])}") from e
+
+
+def _parse_token_expires(value) -> float:
+    if value in (None, ""):
+        return 0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        pass
+
+    if isinstance(value, str):
+        normalized = value.strip().replace("Z", "+00:00")
+        try:
+            return datetime.fromisoformat(normalized).timestamp()
+        except ValueError:
+            return 0
+
+    return 0
+
+
+def _token_is_valid(config: dict) -> bool:
+    token = config.get('access_token')
+    expires_at = _parse_token_expires(config.get('token_expires'))
+    return bool(token and expires_at > time.time() + TOKEN_REFRESH_MARGIN_SECONDS)
+
 def load_config() -> dict:
     if not os.path.exists(CONFIG_FILE):
         raise FileNotFoundError(f"配置文件 {CONFIG_FILE} 不存在")
@@ -201,20 +278,22 @@ def load_config() -> dict:
     return yaml.safe_load(match.group(1)) if match else {}
 
 
-def get_access_token(config: dict) -> str:
-    if config.get('access_token'):
+def get_access_token(config: dict, *, force_refresh: bool = False) -> str:
+    if not force_refresh and _token_is_valid(config):
         return config['access_token']
 
-    resp = requests.get(f"{WECHAT_API_BASE}/token", params={
+    data = request_json("GET", f"{WECHAT_API_BASE}/token", params={
         "grant_type": "client_credential",
         "appid": config['appid'],
         "secret": config['secret']
     })
-    data = resp.json()
 
     if 'access_token' not in data:
-        raise Exception(f"获取 Token 失败: {data}")
-    return data['access_token']
+        raise WechatRequestError(f"获取 Token 失败: {_safe_error_detail(data)}")
+
+    config['access_token'] = data['access_token']
+    config['token_expires'] = int(time.time()) + int(data.get('expires_in', 7200))
+    return config['access_token']
 
 
 def upload_image(token: str, image_path_or_url: str) -> str | None:
@@ -230,15 +309,15 @@ def upload_image(token: str, image_path_or_url: str) -> str | None:
             print(f"本地图片不存在: {image_path_or_url}")
             return None
         with open(image_path_or_url, 'rb') as f:
-            data = requests.post(url, files={'media': f}).json()
+            data = request_json("POST", url, files={'media': f})
         if 'url' not in data:
-            print(f"上传图片失败: {data}")
+            print(f"上传图片失败: {_safe_error_detail(data)}")
             return None
         return data['url']
 
-    data = requests.post(url, files=files).json()
+    data = request_json("POST", url, files=files)
     if 'url' not in data:
-        print(f"上传图片失败: {data}")
+        print(f"上传图片失败: {_safe_error_detail(data)}")
         return None
     return data['url']
 
@@ -248,7 +327,7 @@ def _download_image_for_upload(image_url: str) -> dict | None:
     headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'}
 
     try:
-        resp = requests.get(image_url, headers=headers, timeout=30)
+        resp = request_response("GET", image_url, headers=headers)
         if resp.status_code != 200 or not resp.content:
             print(f"下载图片失败，状态码: {resp.status_code}")
             return None
@@ -322,7 +401,8 @@ def extract_keywords(title: str, digest: str = "") -> list[str]:
 def _search_unsplash(access_key: str, query: str) -> str | None:
     """执行单次 Unsplash 搜索"""
     try:
-        resp = requests.get(
+        data = request_json(
+            "GET",
             f"{UNSPLASH_API_BASE}/search/photos",
             params={
                 'query': query,
@@ -332,12 +412,6 @@ def _search_unsplash(access_key: str, query: str) -> str | None:
             headers={'Authorization': f'Client-ID {access_key}'},
             timeout=10
         )
-
-        if resp.status_code == 403:
-            print("  Unsplash API 限流，跳过自动封面")
-            return None
-
-        data = resp.json()
         if data.get('results'):
             # 使用 regular 尺寸（1080px 宽度，适合微信）
             return data['results'][0]['urls'].get('regular')
@@ -377,7 +451,7 @@ def download_image_to_temp(image_url: str) -> str | None:
     """下载图片到临时文件"""
     try:
         headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'}
-        resp = requests.get(image_url, headers=headers, timeout=30)
+        resp = request_response("GET", image_url, headers=headers)
 
         if resp.status_code != 200:
             return None
@@ -399,14 +473,13 @@ def upload_cover_material(token: str, image_path: str) -> str | None:
         filename = os.path.basename(image_path) or 'cover.jpg'
         with open(image_path, 'rb') as f:
             files = {'media': (filename, f, content_type)}
-            resp = requests.post(url, files=files, timeout=30)
+            data = request_json("POST", url, files=files)
 
-        data = resp.json()
         if 'media_id' in data:
             print(f"  ✓ 封面上传成功: {data['media_id'][:20]}...")
             return data['media_id']
 
-        print(f"  封面上传失败: {data}")
+        print(f"  封面上传失败: {_safe_error_detail(data)}")
         return None
     except Exception as e:
         print(f"  封面上传失败: {e}")
@@ -593,7 +666,7 @@ def render_mermaid_with_kroki(mermaid_code: str) -> str | None:
         kroki_url = f"https://kroki.io/mermaid/png/{encoded}"
 
         headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'}
-        response = requests.get(kroki_url, headers=headers, timeout=15)
+        response = request_response("GET", kroki_url, headers=headers, timeout=15)
 
         if response.status_code == 200 and response.content:
             with tempfile.NamedTemporaryFile(mode='wb', suffix='.png', delete=False) as f:
@@ -1028,12 +1101,22 @@ def process_content_workflow(content: str, token: str, article_dir: str | None =
     return frontmatter, body
 
 
-def publish_draft(token: str, article_data: dict) -> dict:
+def publish_draft(token: str, article_data: dict, config: dict | None = None) -> dict:
     """发布草稿到微信"""
-    url = f"{WECHAT_API_BASE}/draft/add?access_token={token}"
     json_bytes = json.dumps(article_data, ensure_ascii=False).encode('utf-8')
-    resp = requests.post(url, data=json_bytes, headers={'Content-Type': 'application/json; charset=utf-8'})
-    return resp.json()
+    headers = {'Content-Type': 'application/json; charset=utf-8'}
+
+    def send(current_token: str) -> dict:
+        url = f"{WECHAT_API_BASE}/draft/add?access_token={current_token}"
+        return request_json("POST", url, data=json_bytes, headers=headers)
+
+    data = send(token)
+    if data.get('errcode') in TOKEN_INVALID_ERRCODES and config is not None:
+        print("Token 已失效，正在刷新后重试发布草稿...")
+        refreshed_token = get_access_token(config, force_refresh=True)
+        data = send(refreshed_token)
+
+    return data
 
 
 def main(file_path: str) -> None:
@@ -1085,7 +1168,7 @@ def main(file_path: str) -> None:
     }
 
     print("正在发布到草稿箱...")
-    result = publish_draft(token, {"articles": [article]})
+    result = publish_draft(token, {"articles": [article]}, config)
     print("发布结果:", json.dumps(result, indent=2, ensure_ascii=False))
 
     if 'media_id' in result:
