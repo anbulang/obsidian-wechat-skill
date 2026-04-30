@@ -66,6 +66,31 @@ def test_banner_path_local_path_is_resolved_from_article_dir():
             setattr(wechat, "upload_cover_material", original)
 
 
+def test_remote_banner_uses_temp_file_and_cleans_up():
+    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
+        f.write(b"jpg")
+        temp_path = f.name
+
+    calls = []
+    original_download = patch_attr("download_image_to_temp", lambda url: temp_path)
+    original_upload = patch_attr("upload_cover_material", lambda token, src: calls.append(src) or "cover_media")
+    try:
+        result = wechat.resolve_thumb_media_id(
+            {"banner": "https://example.com/cover.jpg"},
+            {"default_thumb_media_id": "default_media"},
+            "token",
+            "/tmp",
+        )
+        assert result == "cover_media"
+        assert calls == [temp_path]
+        assert not os.path.exists(temp_path)
+    finally:
+        setattr(wechat, "download_image_to_temp", original_download)
+        setattr(wechat, "upload_cover_material", original_upload)
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+
+
 def test_explicit_cover_failure_does_not_fall_back_to_default():
     try:
         wechat.resolve_thumb_media_id(
@@ -99,6 +124,7 @@ def main():
     test_thumb_media_id_has_highest_priority()
     test_banner_local_path_is_resolved_from_article_dir()
     test_banner_path_local_path_is_resolved_from_article_dir()
+    test_remote_banner_uses_temp_file_and_cleans_up()
     test_explicit_cover_failure_does_not_fall_back_to_default()
     test_default_cover_is_used_when_no_article_cover_exists()
     print("✅ 封面处理测试通过")

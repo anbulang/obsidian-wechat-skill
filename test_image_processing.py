@@ -5,6 +5,25 @@ import tempfile
 import publish_to_wechat as wechat
 
 
+class FakeStreamResponse:
+    def __init__(self, chunks, headers=None, status_code=200):
+        self._chunks = chunks
+        self.headers = headers or {}
+        self.status_code = status_code
+        self.closed = False
+
+    def iter_content(self, chunk_size):
+        for chunk in self._chunks:
+            yield chunk
+
+    @property
+    def content(self):
+        raise AssertionError("remote image download should stream chunks, not read resp.content")
+
+    def close(self):
+        self.closed = True
+
+
 def with_fake_upload(fn):
     original = wechat.upload_image
     calls = []
@@ -76,6 +95,111 @@ def test_remote_image_keeps_url_for_upload():
     with_fake_upload(run)
 
 
+def test_remote_image_upload_streams_to_temp_file_and_cleans_up():
+    response = FakeStreamResponse(
+        [b"abc", b"def"],
+        headers={"Content-Type": "image/png", "Content-Length": "6"},
+    )
+    post_paths = []
+    unlinked = []
+
+    original_get = wechat.requests.get
+    original_post = wechat.requests.post
+    original_unlink = wechat.os.unlink
+
+    class FakePostResponse:
+        def json(self):
+            return {"url": "https://mmbiz.qpic.cn/streamed.png"}
+
+    def fake_get(*args, **kwargs):
+        assert kwargs.get("stream") is True
+        return response
+
+    def fake_post(url, files):
+        media = files["media"]
+        post_paths.append(media[1].name)
+        assert media[1].read() == b"abcdef"
+        return FakePostResponse()
+
+    def fake_unlink(path):
+        unlinked.append(path)
+        original_unlink(path)
+
+    wechat.requests.get = fake_get
+    wechat.requests.post = fake_post
+    wechat.os.unlink = fake_unlink
+    try:
+        result = wechat.upload_image("token", "https://example.com/a.png")
+        assert result == "https://mmbiz.qpic.cn/streamed.png"
+        assert len(post_paths) == 1
+        assert unlinked == post_paths
+        assert not os.path.exists(post_paths[0])
+        assert response.closed is True
+    finally:
+        wechat.requests.get = original_get
+        wechat.requests.post = original_post
+        wechat.os.unlink = original_unlink
+
+
+def test_remote_image_download_rejects_oversized_content_length():
+    response = FakeStreamResponse(
+        [b"x"],
+        headers={"Content-Type": "image/jpeg", "Content-Length": str(wechat.MAX_REMOTE_IMAGE_BYTES + 1)},
+    )
+    original_get = wechat.requests.get
+    try:
+        wechat.requests.get = lambda *args, **kwargs: response
+        assert wechat.download_image_to_temp("https://example.com/huge.jpg") is None
+        assert response.closed is True
+    finally:
+        wechat.requests.get = original_get
+
+
+def test_remote_image_download_rejects_oversized_stream_and_deletes_temp():
+    response = FakeStreamResponse(
+        [b"1234", b"5678"],
+        headers={"Content-Type": "image/jpeg"},
+    )
+    unlinked = []
+    original_get = wechat.requests.get
+    original_unlink = wechat.os.unlink
+
+    def fake_unlink(path):
+        unlinked.append(path)
+        original_unlink(path)
+
+    wechat.requests.get = lambda *args, **kwargs: response
+    wechat.os.unlink = fake_unlink
+    try:
+        assert wechat.download_image_to_temp("https://example.com/huge.jpg", max_bytes=5) is None
+        assert len(unlinked) == 1
+        assert not os.path.exists(unlinked[0])
+        assert response.closed is True
+    finally:
+        wechat.requests.get = original_get
+        wechat.os.unlink = original_unlink
+
+
+def test_generated_mermaid_png_is_deleted_after_upload():
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+        f.write(b"png")
+        mermaid_path = f.name
+
+    original_render = wechat.render_mermaid_locally
+    original_upload = wechat.upload_image
+    try:
+        wechat.render_mermaid_locally = lambda code: mermaid_path
+        wechat.upload_image = lambda token, src: "https://mmbiz.qpic.cn/mermaid.png"
+        _, body = wechat.process_content_workflow("```mermaid\ngraph TD\n```", "token", "/tmp")
+        assert "https://mmbiz.qpic.cn/mermaid.png" in body
+        assert not os.path.exists(mermaid_path)
+    finally:
+        wechat.render_mermaid_locally = original_render
+        wechat.upload_image = original_upload
+        if os.path.exists(mermaid_path):
+            os.unlink(mermaid_path)
+
+
 def test_missing_image_aborts_publish_content():
     try:
         wechat.process_content_workflow("![Missing](missing.png)", "token", "/tmp")
@@ -90,6 +214,10 @@ def main():
     test_standard_markdown_relative_image()
     test_obsidian_embed_image_variants()
     test_remote_image_keeps_url_for_upload()
+    test_remote_image_upload_streams_to_temp_file_and_cleans_up()
+    test_remote_image_download_rejects_oversized_content_length()
+    test_remote_image_download_rejects_oversized_stream_and_deletes_temp()
+    test_generated_mermaid_png_is_deleted_after_upload()
     test_missing_image_aborts_publish_content()
     print("✅ 图片处理测试通过")
 

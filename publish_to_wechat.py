@@ -20,6 +20,8 @@ import markdown
 CONFIG_FILE = "config/wechat-credentials.local.md"
 WECHAT_API_BASE = "https://api.weixin.qq.com/cgi-bin"
 UNSPLASH_API_BASE = "https://api.unsplash.com"
+MAX_REMOTE_IMAGE_BYTES = 10 * 1024 * 1024
+REMOTE_IMAGE_CHUNK_SIZE = 64 * 1024
 
 # 中文停用词（用于关键词提取）
 CHINESE_STOPWORDS = {'的', '了', '是', '在', '我', '有', '和', '就', '不', '人', '都', '一', '一个', '上', '也', '很', '到', '说', '要', '去', '你', '会', '着', '没有', '看', '好', '自己', '这', '那', '什么', '如何', '为什么', '怎么', '怎样'}
@@ -140,6 +142,15 @@ def is_remote_url(value: str) -> bool:
     return value.startswith(('http://', 'https://'))
 
 
+def safe_unlink(path: str | None) -> None:
+    if not path:
+        return
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
 def resolve_image_source(image_path_or_url: str, article_dir: str) -> tuple[str | None, str | None]:
     """解析图片路径：URL 原样返回，本地相对路径基于文章目录解析。"""
     source = unquote(image_path_or_url.strip())
@@ -220,50 +231,30 @@ def get_access_token(config: dict) -> str:
 def upload_image(token: str, image_path_or_url: str) -> str | None:
     """上传图片到微信，支持本地路径和远程 URL"""
     url = f"{WECHAT_API_BASE}/media/uploadimg?access_token={token}"
+    temp_path = None
 
     if is_remote_url(image_path_or_url):
-        files = _download_image_for_upload(image_path_or_url)
-        if not files:
+        temp_path = download_image_to_temp(image_path_or_url)
+        if not temp_path:
             return None
+        upload_path = temp_path
     else:
         if not os.path.exists(image_path_or_url):
             print(f"本地图片不存在: {image_path_or_url}")
             return None
-        with open(image_path_or_url, 'rb') as f:
-            data = requests.post(url, files={'media': f}).json()
+        upload_path = image_path_or_url
+
+    try:
+        content_type = mimetypes.guess_type(upload_path)[0] or 'image/jpeg'
+        filename = os.path.basename(upload_path) or 'image.jpg'
+        with open(upload_path, 'rb') as f:
+            data = requests.post(url, files={'media': (filename, f, content_type)}).json()
         if 'url' not in data:
             print(f"上传图片失败: {data}")
             return None
         return data['url']
-
-    data = requests.post(url, files=files).json()
-    if 'url' not in data:
-        print(f"上传图片失败: {data}")
-        return None
-    return data['url']
-
-
-def _download_image_for_upload(image_url: str) -> dict | None:
-    """下载远程图片并准备上传"""
-    headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'}
-
-    try:
-        resp = requests.get(image_url, headers=headers, timeout=30)
-        if resp.status_code != 200 or not resp.content:
-            print(f"下载图片失败，状态码: {resp.status_code}")
-            return None
-
-        content_type = resp.headers.get('Content-Type', 'image/jpeg').lower()
-        ext_map = {
-            'image/png': '.png', 'image/jpeg': '.jpg', 'image/jpg': '.jpg',
-            'image/gif': '.gif', 'image/webp': '.webp'
-        }
-        ext = ext_map.get(content_type, '.jpg')
-
-        return {'media': (f'image{ext}', resp.content, content_type)}
-    except Exception as e:
-        print(f"下载图片失败: {e}")
-        return None
+    finally:
+        safe_unlink(temp_path)
 
 
 # ================= 自动封面功能 =================
@@ -373,21 +364,59 @@ def search_unsplash_cover(access_key: str, keywords: list[str]) -> str | None:
     return None
 
 
-def download_image_to_temp(image_url: str) -> str | None:
-    """下载图片到临时文件"""
+def download_image_to_temp(image_url: str, max_bytes: int = MAX_REMOTE_IMAGE_BYTES) -> str | None:
+    """流式下载远程图片到临时文件，超过 max_bytes 时拒绝。"""
+    headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'}
+    resp = None
+    temp_path = None
+    keep_temp = False
     try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'}
-        resp = requests.get(image_url, headers=headers, timeout=30)
+        resp = requests.get(image_url, headers=headers, timeout=30, stream=True)
 
         if resp.status_code != 200:
+            print(f"  下载图片失败，状态码: {resp.status_code}")
             return None
 
-        with tempfile.NamedTemporaryFile(mode='wb', suffix='.jpg', delete=False) as f:
-            f.write(resp.content)
+        content_length = resp.headers.get('Content-Length')
+        if content_length and int(content_length) > max_bytes:
+            print(f"  图片超过大小限制: {int(content_length)} > {max_bytes}")
+            return None
+
+        content_type = resp.headers.get('Content-Type', 'image/jpeg').split(';', 1)[0].lower()
+        ext_map = {
+            'image/png': '.png', 'image/jpeg': '.jpg', 'image/jpg': '.jpg',
+            'image/gif': '.gif', 'image/webp': '.webp'
+        }
+        ext = ext_map.get(content_type) or os.path.splitext(urlparse(image_url).path)[1] or '.jpg'
+
+        total = 0
+        with tempfile.NamedTemporaryFile(mode='wb', suffix=ext, delete=False) as f:
+            temp_path = f.name
+            for chunk in resp.iter_content(chunk_size=REMOTE_IMAGE_CHUNK_SIZE):
+                if not chunk:
+                    continue
+                total += len(chunk)
+                if total > max_bytes:
+                    print(f"  图片超过大小限制: {total} > {max_bytes}")
+                    return None
+                f.write(chunk)
+
+            if total == 0:
+                print("  下载图片失败: 响应内容为空")
+                return None
+
+            keep_temp = True
             return f.name
     except Exception as e:
         print(f"  下载图片失败: {e}")
         return None
+    finally:
+        if resp is not None:
+            close = getattr(resp, 'close', None)
+            if close:
+                close()
+        if temp_path and not keep_temp:
+            safe_unlink(temp_path)
 
 
 def upload_cover_material(token: str, image_path: str) -> str | None:
@@ -425,10 +454,7 @@ def upload_explicit_cover(token: str, cover_source: str, article_dir: str, label
             print("正在上传用户封面...")
             media_id = upload_cover_material(token, temp_path)
         finally:
-            try:
-                os.unlink(temp_path)
-            except:
-                pass
+            safe_unlink(temp_path)
 
         if not media_id:
             raise RuntimeError(f"{label} 封面上传失败: {cover_source}")
@@ -506,10 +532,7 @@ def get_auto_cover(config: dict, token: str, title: str, digest: str = "") -> st
     media_id = upload_cover_material(token, temp_path)
 
     # 5. 清理临时文件
-    try:
-        os.unlink(temp_path)
-    except:
-        pass
+    safe_unlink(temp_path)
 
     return media_id
 
@@ -525,6 +548,10 @@ def render_mermaid_with_playwright(mermaid_code: str) -> str | None:
         return None
 
     html_content = _build_mermaid_html(mermaid_code)
+    html_path = None
+    output_path = None
+    browser = None
+    context = None
 
     try:
         with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8') as f:
@@ -535,7 +562,8 @@ def render_mermaid_with_playwright(mermaid_code: str) -> str | None:
 
         with pw.sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
-            page = browser.new_page(viewport={'width': 1000, 'height': 800}, device_scale_factor=2)
+            context = browser.new_context(viewport={'width': 1000, 'height': 800}, device_scale_factor=2)
+            page = context.new_page()
             page.goto(f'file://{html_path}')
             page.wait_for_timeout(3000)
 
@@ -544,13 +572,24 @@ def render_mermaid_with_playwright(mermaid_code: str) -> str | None:
                 element.screenshot(path=output_path, scale='device', omit_background=True)
             else:
                 page.screenshot(path=output_path, full_page=True)
-            browser.close()
 
-        os.unlink(html_path)
         return output_path
     except Exception as e:
         print(f"Playwright 渲染失败: {e}")
+        safe_unlink(output_path)
         return None
+    finally:
+        if context is not None:
+            try:
+                context.close()
+            except Exception:
+                pass
+        if browser is not None:
+            try:
+                browser.close()
+            except Exception:
+                pass
+        safe_unlink(html_path)
 
 
 def _build_mermaid_html(mermaid_code: str) -> str:
@@ -1000,7 +1039,13 @@ def process_content_workflow(content: str, token: str, article_dir: str | None =
         if resolved_src != src:
             print(f"  解析路径: {resolved_src}")
 
-        wechat_url = upload_image(token, resolved_src)
+        is_generated_mermaid = 'MERMAID_DIAGRAM' in alt and not is_remote_url(resolved_src)
+        try:
+            wechat_url = upload_image(token, resolved_src)
+        finally:
+            if is_generated_mermaid:
+                safe_unlink(resolved_src)
+
         if not wechat_url:
             image_failures.append(f"{src} - 上传到微信失败")
             return original_markup
