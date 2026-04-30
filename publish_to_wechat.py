@@ -57,6 +57,7 @@ AI_COVER_PROVIDER_ALIASES = {
     'nanobanana': 'gemini',
     'nano-banana': 'gemini',
 }
+LEGACY_AUTO_COVER_HOSTS = {'images.unsplash.com', 'plus.unsplash.com', 'source.unsplash.com'}
 
 GENERATED_MERMAID_IMAGES = set()
 OBSIDIAN_SEARCH_SKIP_DIRS = {'.git', '.obsidian', '.trash', '.venv', '__pycache__', 'node_modules'}
@@ -202,6 +203,14 @@ def _validate_remote_image_url(image_url: str) -> tuple[str | None, str | None]:
             return None, f"远程图片主机解析到不安全地址: {ip_text}"
 
     return source, None
+
+
+def _is_legacy_auto_cover_url(cover_source: str) -> bool:
+    """识别旧版自动封面留下的 Unsplash URL。"""
+    if not is_remote_url(cover_source):
+        return False
+    host = (urlparse(cover_source).hostname or '').rstrip('.').lower()
+    return host in LEGACY_AUTO_COVER_HOSTS
 
 
 def _safe_get_remote_image(image_url: str, *, timeout: int = 30, max_redirects: int = 5) -> requests.Response:
@@ -597,6 +606,7 @@ def _ai_cover_endpoint(provider: str, ai_config: dict) -> str:
     if provider == 'gemini':
         endpoint = ai_config.get('endpoint')
         if endpoint:
+            endpoint = endpoint.format(model=ai_config.get('model', ''))
             if endpoint.startswith('http://') or endpoint.startswith('https://'):
                 return endpoint
             return f"{base_url}/{endpoint.lstrip('/')}"
@@ -824,6 +834,9 @@ def resolve_thumb_media_id(frontmatter: dict, config: dict, token: str, article_
     for field in COVER_SOURCE_FIELDS:
         cover_source = frontmatter.get(field)
         if cover_source:
+            if (config.get('ai_cover') or {}).get('enabled', False) and _is_legacy_auto_cover_url(str(cover_source)):
+                print(f"跳过旧版 Unsplash 自动封面字段 {field}，改用 AI 封面")
+                continue
             return upload_explicit_cover(token, cover_source, article_dir, field)
 
     ai_cover = get_ai_cover(config, token, frontmatter, body)

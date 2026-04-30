@@ -89,6 +89,31 @@ def test_cover_alias_field_has_priority_over_ai_cover():
             setattr(wechat, "generate_ai_cover_image", original_ai)
 
 
+def test_legacy_unsplash_cover_is_skipped_when_ai_cover_enabled():
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+        f.write(b"png")
+        temp_path = f.name
+
+    calls = []
+    original_generate = patch_attr("generate_ai_cover_image", lambda config, frontmatter, body: temp_path)
+    original_upload = patch_attr("upload_cover_material", lambda token, src: calls.append(src) or "ai_media")
+    try:
+        result = wechat.resolve_thumb_media_id(
+            {"banner": "https://images.unsplash.com/photo-123?q=85", "title": "Title"},
+            {"default_thumb_media_id": "default_media", "ai_cover": {"enabled": True}},
+            "token",
+            "/tmp",
+            "body",
+        )
+        assert result == "ai_media"
+        assert calls == [temp_path]
+    finally:
+        setattr(wechat, "generate_ai_cover_image", original_generate)
+        setattr(wechat, "upload_cover_material", original_upload)
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+
+
 def test_remote_banner_uses_temp_file_and_cleans_up():
     with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
         f.write(b"jpg")
@@ -376,11 +401,24 @@ def test_nanobanana_provider_alias_uses_gemini_adapter():
             os.unlink(path)
 
 
+def test_gemini_endpoint_expands_model_placeholder():
+    endpoint = wechat._ai_cover_endpoint(
+        "gemini",
+        {
+            "base_url": "https://generativelanguage.googleapis.com/v1beta",
+            "endpoint": "/models/{model}:generateContent",
+            "model": "gemini-3.1-flash-image-preview",
+        },
+    )
+    assert endpoint == "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent"
+
+
 def main():
     test_thumb_media_id_has_highest_priority()
     test_banner_local_path_is_resolved_from_article_dir()
     test_banner_path_local_path_is_resolved_from_article_dir()
     test_cover_alias_field_has_priority_over_ai_cover()
+    test_legacy_unsplash_cover_is_skipped_when_ai_cover_enabled()
     test_remote_banner_uses_temp_file_and_cleans_up()
     test_explicit_cover_failure_does_not_fall_back_to_default()
     test_cover_rejects_unsafe_local_sources()
@@ -393,6 +431,7 @@ def main():
     test_openai_ai_cover_adapter_writes_base64_image()
     test_gemini_ai_cover_adapter_writes_inline_data_image()
     test_nanobanana_provider_alias_uses_gemini_adapter()
+    test_gemini_endpoint_expands_model_placeholder()
     print("✅ 封面处理测试通过")
 
 
