@@ -6,6 +6,9 @@ import base64
 import tempfile
 import zlib
 import random
+import html as html_lib
+import mimetypes
+from urllib.parse import unquote, urlparse
 from html.parser import HTMLParser
 
 import requests
@@ -133,6 +136,62 @@ BASIC_STYLE = """
 
 # ================= 工具函数 =================
 
+def is_remote_url(value: str) -> bool:
+    return value.startswith(('http://', 'https://'))
+
+
+def resolve_image_source(image_path_or_url: str, article_dir: str) -> tuple[str | None, str | None]:
+    """解析图片路径：URL 原样返回，本地相对路径基于文章目录解析。"""
+    source = unquote(image_path_or_url.strip())
+    if not source:
+        return None, "图片路径为空"
+
+    if is_remote_url(source):
+        return source, None
+
+    parsed = urlparse(source)
+    if parsed.scheme == 'file':
+        source = unquote(parsed.path)
+
+    candidates = [source] if os.path.isabs(source) else [
+        os.path.join(article_dir, source),
+        source,
+    ]
+
+    for candidate in candidates:
+        expanded = os.path.abspath(os.path.expanduser(candidate))
+        if os.path.exists(expanded):
+            return expanded, None
+
+    return None, f"本地图片不存在: {source}"
+
+
+def parse_obsidian_image_embed(target: str) -> tuple[str, str]:
+    """解析 Obsidian 图片嵌入语法中的路径和说明。"""
+    src, _, option = target.partition('|')
+    src = src.strip()
+    option = option.strip()
+
+    # ![[image.png|300]] 中的数字通常是显示宽度，发布时忽略。
+    if option and not re.fullmatch(r'\d+(?:px)?', option):
+        return src, option
+
+    basename = os.path.basename(src)
+    alt = os.path.splitext(basename)[0] if basename else ""
+    return src, alt
+
+
+def build_wechat_image_html(wechat_url: str, alt: str, source: str) -> str:
+    is_mermaid = 'MERMAID_DIAGRAM' in alt
+    wrapper_class = 'mermaid-wrapper' if is_mermaid else 'image-wrapper'
+    alt_text = '流程图' if is_mermaid else alt
+    shadow = '0 2px 8px rgba(0,0,0,0.1)' if is_mermaid else '0 2px 4px rgba(0,0,0,0.1)'
+
+    return f'''
+<section class="{wrapper_class}" style="text-align: center; margin: {'24' if is_mermaid else '20'}px 0;">
+  <img src="{html_lib.escape(wechat_url, quote=True)}" alt="{html_lib.escape(alt_text, quote=True)}" style="max-width: 100%; height: auto; display: inline-block; border-radius: 4px; box-shadow: {shadow};" />
+</section>'''
+
 def load_config() -> dict:
     if not os.path.exists(CONFIG_FILE):
         raise FileNotFoundError(f"配置文件 {CONFIG_FILE} 不存在")
@@ -162,7 +221,7 @@ def upload_image(token: str, image_path_or_url: str) -> str | None:
     """上传图片到微信，支持本地路径和远程 URL"""
     url = f"{WECHAT_API_BASE}/media/uploadimg?access_token={token}"
 
-    if image_path_or_url.startswith(('http://', 'https://')):
+    if is_remote_url(image_path_or_url):
         files = _download_image_for_upload(image_path_or_url)
         if not files:
             return None
@@ -170,7 +229,12 @@ def upload_image(token: str, image_path_or_url: str) -> str | None:
         if not os.path.exists(image_path_or_url):
             print(f"本地图片不存在: {image_path_or_url}")
             return None
-        files = {'media': open(image_path_or_url, 'rb')}
+        with open(image_path_or_url, 'rb') as f:
+            data = requests.post(url, files={'media': f}).json()
+        if 'url' not in data:
+            print(f"上传图片失败: {data}")
+            return None
+        return data['url']
 
     data = requests.post(url, files=files).json()
     if 'url' not in data:
@@ -331,8 +395,10 @@ def upload_cover_material(token: str, image_path: str) -> str | None:
     url = f"{WECHAT_API_BASE}/material/add_material?access_token={token}&type=image"
 
     try:
+        content_type = mimetypes.guess_type(image_path)[0] or 'image/jpeg'
+        filename = os.path.basename(image_path) or 'cover.jpg'
         with open(image_path, 'rb') as f:
-            files = {'media': ('cover.jpg', f, 'image/jpeg')}
+            files = {'media': (filename, f, content_type)}
             resp = requests.post(url, files=files, timeout=30)
 
         data = resp.json()
@@ -345,6 +411,69 @@ def upload_cover_material(token: str, image_path: str) -> str | None:
     except Exception as e:
         print(f"  封面上传失败: {e}")
         return None
+
+
+def upload_explicit_cover(token: str, cover_source: str, article_dir: str, label: str) -> str:
+    """上传用户显式配置的封面，失败时中止，避免静默落到默认封面。"""
+    if is_remote_url(cover_source):
+        print(f"正在下载用户封面: {cover_source}")
+        temp_path = download_image_to_temp(cover_source)
+        if not temp_path:
+            raise RuntimeError(f"{label} 封面下载失败: {cover_source}")
+
+        try:
+            print("正在上传用户封面...")
+            media_id = upload_cover_material(token, temp_path)
+        finally:
+            try:
+                os.unlink(temp_path)
+            except:
+                pass
+
+        if not media_id:
+            raise RuntimeError(f"{label} 封面上传失败: {cover_source}")
+        return media_id
+
+    resolved_cover_path, error = resolve_image_source(cover_source, article_dir)
+    if error:
+        raise RuntimeError(f"{label} 封面处理失败: {error}")
+
+    print(f"正在上传用户封面: {cover_source}")
+    if resolved_cover_path != cover_source:
+        print(f"  解析路径: {resolved_cover_path}")
+
+    media_id = upload_cover_material(token, resolved_cover_path)
+    if not media_id:
+        raise RuntimeError(f"{label} 封面上传失败: {cover_source}")
+    return media_id
+
+
+def resolve_thumb_media_id(frontmatter: dict, config: dict, token: str, article_dir: str) -> str | None:
+    """按优先级获取草稿封面 media_id。"""
+    thumb_media_id = frontmatter.get('thumb_media_id')
+    if thumb_media_id:
+        print("使用 frontmatter 中的 thumb_media_id")
+        return thumb_media_id
+
+    # banner 兼容网络 URL 和本地路径；banner_path 保留为显式本地路径别名。
+    banner = frontmatter.get('banner')
+    if banner:
+        return upload_explicit_cover(token, banner, article_dir, 'banner')
+
+    banner_path = frontmatter.get('banner_path')
+    if banner_path:
+        return upload_explicit_cover(token, banner_path, article_dir, 'banner_path')
+
+    title = frontmatter.get('title', "")
+    digest = frontmatter.get('digest', "")
+    auto_cover = get_auto_cover(config, token, title, digest)
+    if auto_cover:
+        return auto_cover
+
+    default_cover = config.get('default_thumb_media_id')
+    if default_cover:
+        print("使用配置中的默认封面 default_thumb_media_id")
+    return default_cover
 
 
 def get_auto_cover(config: dict, token: str, title: str, digest: str = "") -> str | None:
@@ -846,10 +975,12 @@ def _compress_html_preserve_pre(html: str) -> str:
 
 # ================= 工作流 =================
 
-def process_content_workflow(content: str, token: str) -> tuple[dict, str]:
+def process_content_workflow(content: str, token: str, article_dir: str | None = None) -> tuple[dict, str]:
     """完整的 Markdown 处理工作流"""
     frontmatter = {}
     body = content
+    article_dir = article_dir or os.getcwd()
+    image_failures = []
 
     match = re.match(r'^---\n(.*?)\n---\n', content, re.DOTALL)
     if match:
@@ -859,25 +990,38 @@ def process_content_workflow(content: str, token: str) -> tuple[dict, str]:
     body = preprocess_markdown(body)
     body = process_mermaid(body)
 
-    # 上传图片
-    def replace_img(m):
-        alt, src = m.group(1), m.group(2)
+    def upload_body_image(src: str, alt: str, original_markup: str) -> str:
+        resolved_src, error = resolve_image_source(src, article_dir)
+        if error:
+            image_failures.append(f"{src} - {error}")
+            return original_markup
+
         print(f"正在上传图片: {src}")
-        wechat_url = upload_image(token, src)
+        if resolved_src != src:
+            print(f"  解析路径: {resolved_src}")
+
+        wechat_url = upload_image(token, resolved_src)
         if not wechat_url:
-            return m.group(0)
+            image_failures.append(f"{src} - 上传到微信失败")
+            return original_markup
 
-        is_mermaid = 'MERMAID_DIAGRAM' in alt or '/tmp' in src
-        wrapper_class = 'mermaid-wrapper' if is_mermaid else 'image-wrapper'
-        alt_text = '流程图' if is_mermaid else alt
-        shadow = '0 2px 8px rgba(0,0,0,0.1)' if is_mermaid else '0 2px 4px rgba(0,0,0,0.1)'
+        return build_wechat_image_html(wechat_url, alt, resolved_src)
 
-        return f'''
-<section class="{wrapper_class}" style="text-align: center; margin: {'24' if is_mermaid else '20'}px 0;">
-  <img src="{wechat_url}" alt="{alt_text}" style="max-width: 100%; height: auto; display: inline-block; border-radius: 4px; box-shadow: {shadow};" />
-</section>'''
+    def replace_obsidian_img(m):
+        src, alt = parse_obsidian_image_embed(m.group(1))
+        return upload_body_image(src, alt, m.group(0))
 
-    body = re.sub(r'!\[(.*?)\]\((.*?)\)', replace_img, body)
+    def replace_markdown_img(m):
+        alt, src = m.group(1), m.group(2).strip()
+        return upload_body_image(src, alt, m.group(0))
+
+    body = re.sub(r'!\[\[([^\]]+)\]\]', replace_obsidian_img, body)
+    body = re.sub(r'!\[(.*?)\]\((.*?)\)', replace_markdown_img, body)
+
+    if image_failures:
+        details = "\n".join(f"- {failure}" for failure in image_failures)
+        raise RuntimeError(f"图片处理失败，已中止发布：\n{details}")
+
     body = process_admonitions(body)
     body = process_footnotes(body)
 
@@ -894,6 +1038,8 @@ def publish_draft(token: str, article_data: dict) -> dict:
 
 def main(file_path: str) -> None:
     print(f"开始处理文件: {file_path}")
+    article_path = os.path.abspath(file_path)
+    article_dir = os.path.dirname(article_path)
 
     try:
         config = load_config()
@@ -903,55 +1049,27 @@ def main(file_path: str) -> None:
         print(f"初始化失败: {e}")
         return
 
-    with open(file_path, 'r') as f:
+    with open(article_path, 'r') as f:
         raw_content = f.read()
 
     print("正在处理 Markdown 内容...")
-    frontmatter, processed_body = process_content_workflow(raw_content, token)
-    html_content = md_to_html(processed_body)
-
-    thumb_media_id = frontmatter.get('thumb_media_id')
+    try:
+        frontmatter, processed_body = process_content_workflow(raw_content, token, article_dir)
+        html_content = md_to_html(processed_body)
+    except RuntimeError as e:
+        print(e)
+        return
 
     # 封面获取优先级：
     # 1. frontmatter 中的 thumb_media_id
-    # 2. frontmatter 中的 banner/banner_path（用户提供图片）
+    # 2. frontmatter 中的 banner/banner_path（用户提供图片，支持 URL 和本地路径）
     # 3. Unsplash 自动搜索
     # 4. 默认封面
-
-    if not thumb_media_id:
-        # 尝试用户提供的 banner 图片
-        banner = frontmatter.get('banner')  # 网络 URL
-        banner_path = frontmatter.get('banner_path')  # 本地路径
-
-        if banner and banner.startswith(('http://', 'https://')):
-            # 网络图片：先下载再上传
-            print(f"正在下载用户封面: {banner}")
-            temp_path = download_image_to_temp(banner)
-            if temp_path:
-                print(f"正在上传用户封面...")
-                thumb_media_id = upload_cover_material(token, temp_path)
-                try:
-                    os.unlink(temp_path)
-                except:
-                    pass
-                if thumb_media_id:
-                    print(f"  ✓ 封面上传成功: {thumb_media_id[:20]}...")
-                else:
-                    print(f"  封面上传失败")
-        elif banner_path:
-            # 本地图片：直接上传
-            print(f"正在上传用户封面: {banner_path}")
-            thumb_media_id = upload_cover_material(token, banner_path)
-
-    if not thumb_media_id:
-        # 尝试 Unsplash 自动搜索
-        title = frontmatter.get('title', "")
-        digest = frontmatter.get('digest', "")
-        thumb_media_id = get_auto_cover(config, token, title, digest)
-
-    if not thumb_media_id:
-        # 使用默认封面
-        thumb_media_id = config.get('default_thumb_media_id')
+    try:
+        thumb_media_id = resolve_thumb_media_id(frontmatter, config, token, article_dir)
+    except RuntimeError as e:
+        print(e)
+        return
 
     if not thumb_media_id:
         print("警告: 未找到封面图 (thumb_media_id)")

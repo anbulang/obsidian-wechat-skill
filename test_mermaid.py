@@ -51,7 +51,7 @@ def main():
     print(result)
 
     # 检查是否包含图片或降级代码块
-    if '![](' in result or 'mermaid-fallback' in result:
+    if '![MERMAID_DIAGRAM](' in result or 'mermaid-fallback' in result:
         print("\n✅ 测试通过: Mermaid 代码块已被处理")
     else:
         print("\n❌ 测试失败: Mermaid 代码块未被处理")
