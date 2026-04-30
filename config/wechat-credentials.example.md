@@ -8,12 +8,14 @@ default_thumb_media_id: ""
 # AI 自动封面配置（可选）
 ai_cover:
   enabled: false
-  provider: "openai" # openai | nanobanana
+  provider: "openai" # openai | gemini
   api_key: ""
   base_url: ""
-  endpoint: "/images/generations"
+  endpoint: "" # 可选；OpenAI 默认 /images/generations，Gemini 默认 /models/{model}:generateContent
   model: ""
   size: "1536x640"
+  aspect_ratio: "16:9" # Gemini 使用
+  image_size: "" # Gemini 可选，如 2K
   prompt_template: |
     根据下面的微信公众号文章内容生成一张横版封面图。
     要求：画面适合微信公众号封面，现代、清晰、有主题感，不要生成可读文字、Logo、水印或二维码。
@@ -87,7 +89,9 @@ curl -s "https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&ap
 
 默认关闭自动封面，避免在未明确授权时请求外部生图服务。
 
-1. 在 `ai_cover.provider` 中选择 `openai` 或 `nanobanana`
+1. 在 `ai_cover.provider` 中选择 `openai` 或 `gemini`
 2. 填入对应服务的 `api_key`、`base_url`、`model`
 3. 设置 `ai_cover.enabled: true`
 4. 如需定制风格，修改 `prompt_template`
+
+> 说明：Nano Banana 是 Gemini 的图片生成能力，请使用 `provider: "gemini"`。旧的 `provider: "nanobanana"` 会作为兼容别名处理。

@@ -48,11 +48,14 @@ AI_COVER_DEFAULTS = {
         'endpoint': '/images/generations',
         'size': '1536x640',
     },
-    'nanobanana': {
-        'base_url': 'https://api.nanobanana.ai/v1',
-        'endpoint': '/images/generations',
-        'size': '1536x640',
+    'gemini': {
+        'base_url': 'https://generativelanguage.googleapis.com/v1beta',
+        'aspect_ratio': '16:9',
     },
+}
+AI_COVER_PROVIDER_ALIASES = {
+    'nanobanana': 'gemini',
+    'nano-banana': 'gemini',
 }
 
 GENERATED_MERMAID_IMAGES = set()
@@ -558,9 +561,19 @@ def _extract_generated_image(data: dict) -> tuple[str | None, str | None]:
             candidates.append(value)
     candidates.append(data)
 
+    for candidate in data.get('candidates', []):
+        if not isinstance(candidate, dict):
+            continue
+        content = candidate.get('content') or {}
+        parts = content.get('parts') or []
+        candidates.extend(part for part in parts if isinstance(part, dict))
+
     for item in candidates:
         b64_value = item.get('b64_json') or item.get('base64') or item.get('image_base64')
         url_value = item.get('url') or item.get('image_url')
+        inline_data = item.get('inlineData') or item.get('inline_data')
+        if isinstance(inline_data, dict):
+            b64_value = b64_value or inline_data.get('data')
         if b64_value:
             if isinstance(b64_value, str) and b64_value.startswith('data:image'):
                 b64_value = b64_value.split(',', 1)[-1]
@@ -581,10 +594,24 @@ def _write_base64_image_to_temp(b64_value: str, suffix: str = '.png') -> str:
 def _ai_cover_endpoint(provider: str, ai_config: dict) -> str:
     defaults = AI_COVER_DEFAULTS[provider]
     base_url = (ai_config.get('base_url') or defaults['base_url']).rstrip('/')
+    if provider == 'gemini':
+        endpoint = ai_config.get('endpoint')
+        if endpoint:
+            if endpoint.startswith('http://') or endpoint.startswith('https://'):
+                return endpoint
+            return f"{base_url}/{endpoint.lstrip('/')}"
+        model = ai_config.get('model')
+        return f"{base_url}/models/{model}:generateContent"
+
     endpoint = ai_config.get('endpoint') or defaults['endpoint']
     if endpoint.startswith('http://') or endpoint.startswith('https://'):
         return endpoint
     return f"{base_url}/{endpoint.lstrip('/')}"
+
+
+def _normalize_ai_cover_provider(provider: str) -> str:
+    normalized = provider.lower()
+    return AI_COVER_PROVIDER_ALIASES.get(normalized, normalized)
 
 
 def _request_ai_cover(provider: str, ai_config: dict, prompt: str) -> dict:
@@ -598,6 +625,32 @@ def _request_ai_cover(provider: str, ai_config: dict, prompt: str) -> dict:
     model = ai_config.get('model')
     if not model:
         raise ValueError("AI 封面未配置 model")
+
+    if provider == 'gemini':
+        image_config = {
+            'aspectRatio': ai_config.get('aspect_ratio') or ai_config.get('aspectRatio') or AI_COVER_DEFAULTS[provider]['aspect_ratio']
+        }
+        image_size = ai_config.get('image_size') or ai_config.get('imageSize')
+        if image_size:
+            image_config['imageSize'] = image_size
+
+        payload = {
+            'contents': [{
+                'parts': [{'text': prompt}]
+            }],
+            'generationConfig': {
+                'responseModalities': ['TEXT', 'IMAGE'],
+                'imageConfig': image_config,
+            },
+        }
+        headers = {'x-goog-api-key': api_key, 'Content-Type': 'application/json'}
+        return request_json(
+            "POST",
+            _ai_cover_endpoint(provider, ai_config),
+            headers=headers,
+            json=payload,
+            timeout=ai_config.get('timeout', DEFAULT_HTTP_TIMEOUT),
+        )
 
     payload = {
         'model': model,
@@ -625,7 +678,7 @@ def generate_ai_cover_image(config: dict, frontmatter: dict, body: str) -> str |
     if not ai_config.get('enabled', False):
         return None
 
-    provider = (ai_config.get('provider') or 'openai').lower()
+    provider = _normalize_ai_cover_provider(ai_config.get('provider') or 'openai')
     prompt = _format_ai_cover_prompt(ai_config, frontmatter, body)
     data = _request_ai_cover(provider, ai_config, prompt)
     b64_value, image_url = _extract_generated_image(data)

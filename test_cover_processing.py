@@ -306,35 +306,74 @@ def test_openai_ai_cover_adapter_writes_base64_image():
         wechat.request_json = original_request_json
 
 
-def test_nanobanana_ai_cover_adapter_downloads_url():
-    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
-        f.write(b"jpg")
-        temp_path = f.name
-
+def test_gemini_ai_cover_adapter_writes_inline_data_image():
     original_request_json = wechat.request_json
-    original_download = patch_attr("download_image_to_temp", lambda url: temp_path)
+    payloads = []
     try:
-        wechat.request_json = lambda method, url, **kwargs: {"images": [{"url": "https://example.com/cover.jpg"}]}
-        with patch.object(socket, "getaddrinfo", return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('93.184.216.34', 443))]):
-            path = wechat.generate_ai_cover_image(
-                {
-                    "ai_cover": {
-                        "enabled": True,
-                        "provider": "nanobanana",
-                        "api_key": "secret-key",
-                        "base_url": "https://banana.example/v1",
-                        "model": "banana-image",
-                    }
-                },
-                {"title": "Title"},
-                "body",
-            )
-        assert path == temp_path
+        wechat.request_json = lambda method, url, **kwargs: payloads.append((method, url, kwargs)) or {
+            "candidates": [{
+                "content": {
+                    "parts": [{
+                        "inlineData": {
+                            "mimeType": "image/png",
+                            "data": "iVBORw0KGgo=",
+                        }
+                    }]
+                }
+            }]
+        }
+        path = wechat.generate_ai_cover_image(
+            {
+                "ai_cover": {
+                    "enabled": True,
+                    "provider": "gemini",
+                    "api_key": "gemini-key",
+                    "base_url": "https://generativelanguage.googleapis.com/v1beta",
+                    "model": "gemini-3.1-flash-image-preview",
+                    "aspect_ratio": "16:9",
+                    "image_size": "2K",
+                }
+            },
+            {"title": "Title"},
+            "body",
+        )
+        assert os.path.exists(path)
+        assert open(path, "rb").read().startswith(b"\x89PNG")
+        assert payloads[0][0] == "POST"
+        assert payloads[0][1] == "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent"
+        assert payloads[0][2]["headers"]["x-goog-api-key"] == "gemini-key"
+        assert payloads[0][2]["json"]["generationConfig"]["responseModalities"] == ["TEXT", "IMAGE"]
+        assert payloads[0][2]["json"]["generationConfig"]["imageConfig"] == {"aspectRatio": "16:9", "imageSize": "2K"}
     finally:
         wechat.request_json = original_request_json
-        setattr(wechat, "download_image_to_temp", original_download)
-        if os.path.exists(temp_path):
-            os.unlink(temp_path)
+        if 'path' in locals():
+            os.unlink(path)
+
+
+def test_nanobanana_provider_alias_uses_gemini_adapter():
+    calls = []
+    original_request_json = wechat.request_json
+    try:
+        wechat.request_json = lambda method, url, **kwargs: calls.append(url) or {
+            "candidates": [{"content": {"parts": [{"inline_data": {"data": "iVBORw0KGgo=", "mime_type": "image/png"}}]}}]
+        }
+        path = wechat.generate_ai_cover_image(
+            {
+                "ai_cover": {
+                    "enabled": True,
+                    "provider": "nanobanana",
+                    "api_key": "gemini-key",
+                    "model": "gemini-3.1-flash-image-preview",
+                }
+            },
+            {"title": "Title"},
+            "body",
+        )
+        assert calls == ["https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent"]
+    finally:
+        wechat.request_json = original_request_json
+        if 'path' in locals():
+            os.unlink(path)
 
 
 def main():
@@ -352,7 +391,8 @@ def main():
     test_ai_cover_is_used_before_default_cover()
     test_ai_cover_failure_falls_back_to_default_cover()
     test_openai_ai_cover_adapter_writes_base64_image()
-    test_nanobanana_ai_cover_adapter_downloads_url()
+    test_gemini_ai_cover_adapter_writes_inline_data_image()
+    test_nanobanana_provider_alias_uses_gemini_adapter()
     print("✅ 封面处理测试通过")
 
 
