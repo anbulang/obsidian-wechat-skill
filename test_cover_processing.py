@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import os
+import socket
 import tempfile
+from unittest.mock import patch
 
 import publish_to_wechat as wechat
 
@@ -41,7 +43,7 @@ def test_banner_local_path_is_resolved_from_article_dir():
                 tmp,
             )
             assert result == "cover_media"
-            assert calls == [image_path]
+            assert calls == [os.path.realpath(image_path)]
         finally:
             setattr(wechat, "upload_cover_material", original)
 
@@ -61,7 +63,7 @@ def test_banner_path_local_path_is_resolved_from_article_dir():
                 tmp,
             )
             assert result == "cover_media"
-            assert calls == [image_path]
+            assert calls == [os.path.realpath(image_path)]
         finally:
             setattr(wechat, "upload_cover_material", original)
 
@@ -79,6 +81,77 @@ def test_explicit_cover_failure_does_not_fall_back_to_default():
         assert "missing.png" in str(e)
     else:
         raise AssertionError("missing explicit cover should abort")
+
+
+def test_cover_rejects_unsafe_local_sources():
+    with tempfile.TemporaryDirectory() as tmp:
+        article_dir = os.path.join(tmp, "article")
+        os.makedirs(article_dir)
+        outside_path = os.path.join(tmp, "cover.png")
+        open(outside_path, "wb").write(b"png")
+
+        cases = [
+            (outside_path, "本地图片必须使用文章目录内的相对路径"),
+            (f"file://{outside_path}", "本地图片不允许使用 URL scheme"),
+            ("../cover.png", "本地图片路径不允许包含 .."),
+        ]
+
+        for src, expected in cases:
+            try:
+                wechat.resolve_thumb_media_id(
+                    {"banner": src},
+                    {"default_thumb_media_id": "default_media"},
+                    "token",
+                    article_dir,
+                )
+            except RuntimeError as e:
+                assert expected in str(e)
+            else:
+                raise AssertionError(f"unsafe cover should abort: {src}")
+
+
+def test_cover_rejects_unsafe_remote_sources():
+    cases = [
+        ("http://example.com/cover.png", "远程图片仅允许 https URL"),
+        ("https://localhost/cover.png", "远程图片不允许使用 localhost"),
+        ("https://10.0.0.1/cover.png", "远程图片主机解析到不安全地址"),
+    ]
+
+    for src, expected in cases:
+        try:
+            wechat.resolve_thumb_media_id(
+                {"banner": src},
+                {"default_thumb_media_id": "default_media"},
+                "token",
+                "/tmp",
+            )
+        except RuntimeError as e:
+            assert expected in str(e)
+        else:
+            raise AssertionError(f"unsafe cover URL should abort: {src}")
+
+
+def test_remote_download_validates_redirect_target():
+    class Response:
+        status_code = 302
+        content = b""
+        headers = {"Location": "https://127.0.0.1/private.png"}
+        is_redirect = True
+        is_permanent_redirect = False
+
+    def fake_get(*args, **kwargs):
+        return Response()
+
+    with (
+        patch.object(socket, "getaddrinfo", return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('93.184.216.34', 443))]),
+        patch.object(wechat.requests, "get", fake_get),
+    ):
+        try:
+            wechat._safe_get_remote_image("https://example.com/cover.png")
+        except ValueError as e:
+            assert "远程图片主机解析到不安全地址" in str(e)
+        else:
+            raise AssertionError("unsafe redirect target should abort")
 
 
 def test_default_cover_is_used_when_no_article_cover_exists():
@@ -100,6 +173,9 @@ def main():
     test_banner_local_path_is_resolved_from_article_dir()
     test_banner_path_local_path_is_resolved_from_article_dir()
     test_explicit_cover_failure_does_not_fall_back_to_default()
+    test_cover_rejects_unsafe_local_sources()
+    test_cover_rejects_unsafe_remote_sources()
+    test_remote_download_validates_redirect_target()
     test_default_cover_is_used_when_no_article_cover_exists()
     print("✅ 封面处理测试通过")
 

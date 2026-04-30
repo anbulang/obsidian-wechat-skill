@@ -7,8 +7,10 @@ import tempfile
 import zlib
 import random
 import html as html_lib
+import ipaddress
 import mimetypes
-from urllib.parse import unquote, urlparse
+import socket
+from urllib.parse import unquote, urljoin, urlparse
 from html.parser import HTMLParser
 
 import requests
@@ -46,6 +48,8 @@ UNSPLASH_FALLBACK_CATEGORIES = [
     'technology', 'business', 'abstract', 'minimal',
     'workspace', 'nature', 'architecture', 'gradient'
 ]
+
+GENERATED_MERMAID_IMAGES = set()
 
 # Admonition SVG 图标
 ADMONITION_ICONS = {
@@ -137,7 +141,80 @@ BASIC_STYLE = """
 # ================= 工具函数 =================
 
 def is_remote_url(value: str) -> bool:
-    return value.startswith(('http://', 'https://'))
+    return urlparse(value.strip()).scheme in ('http', 'https')
+
+
+def _is_disallowed_ip(ip_text: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(ip_text)
+    except ValueError:
+        return True
+
+    return (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_reserved
+        or ip.is_multicast
+        or ip.is_unspecified
+    )
+
+
+def _validate_remote_image_url(image_url: str) -> tuple[str | None, str | None]:
+    """校验远程图片 URL，避免 SSRF 到内网或本机地址。"""
+    source = image_url.strip()
+    parsed = urlparse(source)
+
+    if parsed.scheme != 'https':
+        return None, "远程图片仅允许 https URL"
+    if not parsed.hostname:
+        return None, "远程图片 URL 缺少主机名"
+    if parsed.username or parsed.password:
+        return None, "远程图片 URL 不允许包含认证信息"
+
+    host = parsed.hostname.rstrip('.').lower()
+    if host in {'localhost', 'localhost.localdomain'} or host.endswith('.localhost'):
+        return None, "远程图片不允许使用 localhost"
+
+    try:
+        ipaddress.ip_address(host)
+        resolved_ips = [host]
+    except ValueError:
+        try:
+            resolved_ips = [item[4][0] for item in socket.getaddrinfo(host, parsed.port or 443, proto=socket.IPPROTO_TCP)]
+        except socket.gaierror as e:
+            return None, f"远程图片主机解析失败: {e}"
+
+    if not resolved_ips:
+        return None, "远程图片主机解析为空"
+    for ip_text in set(resolved_ips):
+        if _is_disallowed_ip(ip_text):
+            return None, f"远程图片主机解析到不安全地址: {ip_text}"
+
+    return source, None
+
+
+def _safe_get_remote_image(image_url: str, *, timeout: int = 30, max_redirects: int = 5) -> requests.Response:
+    """下载远程图片，禁用自动重定向并逐跳校验目标。"""
+    headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'}
+    current_url = image_url
+
+    for _ in range(max_redirects + 1):
+        safe_url, error = _validate_remote_image_url(current_url)
+        if error:
+            raise ValueError(error)
+
+        resp = requests.get(safe_url, headers=headers, timeout=timeout, allow_redirects=False)
+        if resp.is_redirect or resp.is_permanent_redirect:
+            location = resp.headers.get('Location')
+            if not location:
+                raise ValueError("远程图片重定向缺少 Location")
+            current_url = urljoin(safe_url, location)
+            continue
+
+        return resp
+
+    raise ValueError("远程图片重定向次数过多")
 
 
 def resolve_image_source(image_path_or_url: str, article_dir: str) -> tuple[str | None, str | None]:
@@ -147,23 +224,28 @@ def resolve_image_source(image_path_or_url: str, article_dir: str) -> tuple[str 
         return None, "图片路径为空"
 
     if is_remote_url(source):
-        return source, None
+        return _validate_remote_image_url(source)
 
     parsed = urlparse(source)
-    if parsed.scheme == 'file':
-        source = unquote(parsed.path)
+    if parsed.scheme:
+        return None, "本地图片不允许使用 URL scheme"
+    if os.path.isabs(source):
+        return None, "本地图片必须使用文章目录内的相对路径"
+    if any(part == '..' for part in source.replace('\\', '/').split('/')):
+        return None, "本地图片路径不允许包含 .."
 
-    candidates = [source] if os.path.isabs(source) else [
-        os.path.join(article_dir, source),
-        source,
-    ]
+    article_root = os.path.realpath(os.path.abspath(article_dir))
+    candidate = os.path.realpath(os.path.abspath(os.path.join(article_root, source)))
+    try:
+        common_path = os.path.commonpath([article_root, candidate])
+    except ValueError:
+        return None, "本地图片路径越界"
+    if common_path != article_root:
+        return None, "本地图片路径越界"
+    if not os.path.exists(candidate):
+        return None, f"本地图片不存在: {source}"
 
-    for candidate in candidates:
-        expanded = os.path.abspath(os.path.expanduser(candidate))
-        if os.path.exists(expanded):
-            return expanded, None
-
-    return None, f"本地图片不存在: {source}"
+    return candidate, None
 
 
 def parse_obsidian_image_embed(target: str) -> tuple[str, str]:
@@ -245,10 +327,8 @@ def upload_image(token: str, image_path_or_url: str) -> str | None:
 
 def _download_image_for_upload(image_url: str) -> dict | None:
     """下载远程图片并准备上传"""
-    headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'}
-
     try:
-        resp = requests.get(image_url, headers=headers, timeout=30)
+        resp = _safe_get_remote_image(image_url, timeout=30)
         if resp.status_code != 200 or not resp.content:
             print(f"下载图片失败，状态码: {resp.status_code}")
             return None
@@ -376,8 +456,7 @@ def search_unsplash_cover(access_key: str, keywords: list[str]) -> str | None:
 def download_image_to_temp(image_url: str) -> str | None:
     """下载图片到临时文件"""
     try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'}
-        resp = requests.get(image_url, headers=headers, timeout=30)
+        resp = _safe_get_remote_image(image_url, timeout=30)
 
         if resp.status_code != 200:
             return None
@@ -416,8 +495,12 @@ def upload_cover_material(token: str, image_path: str) -> str | None:
 def upload_explicit_cover(token: str, cover_source: str, article_dir: str, label: str) -> str:
     """上传用户显式配置的封面，失败时中止，避免静默落到默认封面。"""
     if is_remote_url(cover_source):
+        safe_cover_source, error = _validate_remote_image_url(cover_source)
+        if error:
+            raise RuntimeError(f"{label} 封面处理失败: {error}")
+
         print(f"正在下载用户封面: {cover_source}")
-        temp_path = download_image_to_temp(cover_source)
+        temp_path = download_image_to_temp(safe_cover_source)
         if not temp_path:
             raise RuntimeError(f"{label} 封面下载失败: {cover_source}")
 
@@ -555,6 +638,7 @@ def render_mermaid_with_playwright(mermaid_code: str) -> str | None:
 
 def _build_mermaid_html(mermaid_code: str) -> str:
     """构建 Mermaid 渲染用的 HTML"""
+    escaped_mermaid_code = html_lib.escape(mermaid_code)
     return f"""<!DOCTYPE html>
 <html>
 <head>
@@ -570,7 +654,7 @@ def _build_mermaid_html(mermaid_code: str) -> str:
 </head>
 <body>
     <div id="mermaid-container">
-        <pre class="mermaid">{mermaid_code}</pre>
+        <pre class="mermaid">{escaped_mermaid_code}</pre>
     </div>
     <script>
         mermaid.initialize({{
@@ -635,6 +719,7 @@ def process_mermaid(content: str) -> str:
 
         local_path = render_mermaid_locally(code)
         if local_path:
+            GENERATED_MERMAID_IMAGES.add(os.path.realpath(local_path))
             return f'![MERMAID_DIAGRAM]({local_path})'
 
         # 降级为格式化代码块
@@ -991,7 +1076,12 @@ def process_content_workflow(content: str, token: str, article_dir: str | None =
     body = process_mermaid(body)
 
     def upload_body_image(src: str, alt: str, original_markup: str) -> str:
-        resolved_src, error = resolve_image_source(src, article_dir)
+        candidate_src = os.path.realpath(src) if os.path.isabs(src) else src
+        if 'MERMAID_DIAGRAM' in alt and candidate_src in GENERATED_MERMAID_IMAGES:
+            resolved_src, error = (candidate_src, None) if os.path.exists(candidate_src) else (None, f"本地图片不存在: {src}")
+            GENERATED_MERMAID_IMAGES.discard(candidate_src)
+        else:
+            resolved_src, error = resolve_image_source(src, article_dir)
         if error:
             image_failures.append(f"{src} - {error}")
             return original_markup
