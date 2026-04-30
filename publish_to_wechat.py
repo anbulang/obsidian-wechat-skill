@@ -36,6 +36,7 @@ WECHAT_IMAGE_TYPES = {
     '.png': 'image/png',
     '.gif': 'image/gif',
 }
+COVER_SOURCE_FIELDS = ('banner', 'banner_path', 'cover', 'cover_image', 'thumbnail', 'image', 'featured_image')
 
 # 中文停用词（用于关键词提取）
 CHINESE_STOPWORDS = {'的', '了', '是', '在', '我', '有', '和', '就', '不', '人', '都', '一', '一个', '上', '也', '很', '到', '说', '要', '去', '你', '会', '着', '没有', '看', '好', '自己', '这', '那', '什么', '如何', '为什么', '怎么', '怎样'}
@@ -337,6 +338,22 @@ def parse_obsidian_image_embed(target: str) -> tuple[str, str]:
     basename = os.path.basename(src)
     alt = os.path.splitext(basename)[0] if basename else ""
     return src, alt
+
+
+def extract_first_body_image_source(body: str) -> str | None:
+    """从正文中提取首张图片，作为未显式配置封面时的候选。"""
+    obsidian_match = re.search(r'!\[\[([^\]]+)\]\]', body)
+    markdown_match = re.search(r'!\[(.*?)\]\((.*?)\)', body)
+
+    candidates = []
+    if obsidian_match:
+        candidates.append((obsidian_match.start(), parse_obsidian_image_embed(obsidian_match.group(1))[0]))
+    if markdown_match:
+        candidates.append((markdown_match.start(), markdown_match.group(2).strip()))
+
+    if not candidates:
+        return None
+    return min(candidates, key=lambda item: item[0])[1]
 
 
 def build_wechat_image_html(wechat_url: str, alt: str, source: str) -> str:
@@ -745,21 +762,22 @@ def upload_explicit_cover(token: str, cover_source: str, article_dir: str, label
     return media_id
 
 
-def resolve_thumb_media_id(frontmatter: dict, config: dict, token: str, article_dir: str) -> str | None:
+def resolve_thumb_media_id(frontmatter: dict, config: dict, token: str, article_dir: str, body_cover_source: str | None = None) -> str | None:
     """按优先级获取草稿封面 media_id。"""
     thumb_media_id = frontmatter.get('thumb_media_id')
     if thumb_media_id:
         print("使用 frontmatter 中的 thumb_media_id")
         return thumb_media_id
 
-    # banner 兼容网络 URL 和本地路径；banner_path 保留为显式本地路径别名。
-    banner = frontmatter.get('banner')
-    if banner:
-        return upload_explicit_cover(token, banner, article_dir, 'banner')
+    # 兼容常见 frontmatter 封面字段，值可为网络 URL 或本地/vault 相对路径。
+    for field in COVER_SOURCE_FIELDS:
+        cover_source = frontmatter.get(field)
+        if cover_source:
+            return upload_explicit_cover(token, cover_source, article_dir, field)
 
-    banner_path = frontmatter.get('banner_path')
-    if banner_path:
-        return upload_explicit_cover(token, banner_path, article_dir, 'banner_path')
+    if body_cover_source:
+        print(f"使用正文首图作为封面: {body_cover_source}")
+        return upload_explicit_cover(token, body_cover_source, article_dir, '正文首图')
 
     title = frontmatter.get('title', "")
     digest = frontmatter.get('digest', "")
@@ -1299,6 +1317,8 @@ def process_content_workflow(content: str, token: str, article_dir: str | None =
         frontmatter = yaml.safe_load(match.group(1))
         body = content[match.end():]
 
+    frontmatter['_body_cover_source'] = extract_first_body_image_source(body)
+
     body = preprocess_markdown(body)
     body = process_mermaid(body)
 
@@ -1395,11 +1415,18 @@ def main(file_path: str) -> None:
 
     # 封面获取优先级：
     # 1. frontmatter 中的 thumb_media_id
-    # 2. frontmatter 中的 banner/banner_path（用户提供图片，支持 URL 和本地路径）
-    # 3. Unsplash 自动搜索
-    # 4. 默认封面
+    # 2. frontmatter 中的 banner/banner_path/cover/image 等字段（支持 URL 和本地路径）
+    # 3. 正文首图
+    # 4. Unsplash 自动搜索
+    # 5. 默认封面
     try:
-        thumb_media_id = resolve_thumb_media_id(frontmatter, config, token, article_dir)
+        thumb_media_id = resolve_thumb_media_id(
+            frontmatter,
+            config,
+            token,
+            article_dir,
+            frontmatter.get('_body_cover_source')
+        )
     except RuntimeError as e:
         print(e)
         return

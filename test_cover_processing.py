@@ -68,6 +68,54 @@ def test_banner_path_local_path_is_resolved_from_article_dir():
             setattr(wechat, "upload_cover_material", original)
 
 
+def test_cover_alias_field_has_priority_over_body_first_image():
+    with tempfile.TemporaryDirectory() as tmp:
+        cover_path = os.path.join(tmp, "cover.webp")
+        body_path = os.path.join(tmp, "body.webp")
+        open(cover_path, "wb").write(b"cover")
+        open(body_path, "wb").write(b"body")
+        calls = []
+        original = patch_attr("upload_cover_material", lambda token, src: calls.append(src) or "cover_media")
+        try:
+            result = wechat.resolve_thumb_media_id(
+                {"image": "cover.webp"},
+                {"default_thumb_media_id": "default_media"},
+                "token",
+                tmp,
+                "body.webp",
+            )
+            assert result == "cover_media"
+            assert calls == [os.path.realpath(cover_path)]
+        finally:
+            setattr(wechat, "upload_cover_material", original)
+
+
+def test_body_first_image_is_used_before_default_cover():
+    with tempfile.TemporaryDirectory() as tmp:
+        os.makedirs(os.path.join(tmp, ".obsidian"))
+        article_dir = os.path.join(tmp, "notes")
+        asset_dir = os.path.join(tmp, "Troubleshooting", "images")
+        os.makedirs(article_dir)
+        os.makedirs(asset_dir)
+        image_path = os.path.join(asset_dir, "fig_1__codex_drives_the_app_.webp")
+        open(image_path, "wb").write(b"webp")
+
+        calls = []
+        original = patch_attr("upload_cover_material", lambda token, src: calls.append(src) or "first_image_media")
+        try:
+            result = wechat.resolve_thumb_media_id(
+                {"title": "Title"},
+                {"default_thumb_media_id": "default_media"},
+                "token",
+                article_dir,
+                "fig_1__codex_drives_the_app_.webp",
+            )
+            assert result == "first_image_media"
+            assert calls == [os.path.realpath(image_path)]
+        finally:
+            setattr(wechat, "upload_cover_material", original)
+
+
 def test_remote_banner_uses_temp_file_and_cleans_up():
     with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
         f.write(b"jpg")
@@ -200,6 +248,8 @@ def main():
     test_thumb_media_id_has_highest_priority()
     test_banner_local_path_is_resolved_from_article_dir()
     test_banner_path_local_path_is_resolved_from_article_dir()
+    test_cover_alias_field_has_priority_over_body_first_image()
+    test_body_first_image_is_used_before_default_cover()
     test_remote_banner_uses_temp_file_and_cleans_up()
     test_explicit_cover_failure_does_not_fall_back_to_default()
     test_cover_rejects_unsafe_local_sources()
