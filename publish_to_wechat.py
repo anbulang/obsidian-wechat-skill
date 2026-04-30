@@ -30,6 +30,12 @@ TOKEN_INVALID_ERRCODES = {40001, 42001}
 SENSITIVE_KEYS = {"secret", "access_token", "token", "appid"}
 MAX_REMOTE_IMAGE_BYTES = 10 * 1024 * 1024
 REMOTE_IMAGE_CHUNK_SIZE = 64 * 1024
+WECHAT_IMAGE_TYPES = {
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.gif': 'image/gif',
+}
 
 # 中文停用词（用于关键词提取）
 CHINESE_STOPWORDS = {'的', '了', '是', '在', '我', '有', '和', '就', '不', '人', '都', '一', '一个', '上', '也', '很', '到', '说', '要', '去', '你', '会', '着', '没有', '看', '好', '自己', '这', '那', '什么', '如何', '为什么', '怎么', '怎样'}
@@ -442,10 +448,58 @@ def get_access_token(config: dict, *, force_refresh: bool = False) -> str:
     return config['access_token']
 
 
+def _convert_raster_to_png(image_path: str) -> str:
+    try:
+        from PIL import Image
+    except ImportError as e:
+        raise RuntimeError("需要安装 Pillow 才能转换 WebP/非微信格式图片: pip install Pillow") from e
+
+    with Image.open(image_path) as img:
+        if img.mode not in ('RGB', 'RGBA'):
+            img = img.convert('RGBA')
+        with tempfile.NamedTemporaryFile(mode='wb', suffix='.png', delete=False) as f:
+            output_path = f.name
+        img.save(output_path, format='PNG')
+        return output_path
+
+
+def _convert_svg_to_png(image_path: str) -> str:
+    try:
+        import cairosvg
+    except ImportError as e:
+        raise RuntimeError("需要安装 CairoSVG 才能转换 SVG 图片: pip install cairosvg") from e
+
+    with tempfile.NamedTemporaryFile(mode='wb', suffix='.png', delete=False) as f:
+        output_path = f.name
+    try:
+        cairosvg.svg2png(url=image_path, write_to=output_path)
+        return output_path
+    except Exception:
+        safe_unlink(output_path)
+        raise
+
+
+def prepare_wechat_image_for_upload(image_path: str) -> tuple[str, str, str, str | None]:
+    """返回可被微信 uploadimg 接受的 path/filename/content_type/temp_path。"""
+    ext = os.path.splitext(image_path)[1].lower()
+    if ext in WECHAT_IMAGE_TYPES:
+        return image_path, os.path.basename(image_path) or f'image{ext}', WECHAT_IMAGE_TYPES[ext], None
+
+    if ext == '.svg':
+        converted_path = _convert_svg_to_png(image_path)
+    else:
+        converted_path = _convert_raster_to_png(image_path)
+
+    original_name = os.path.splitext(os.path.basename(image_path))[0] or 'image'
+    print(f"  图片格式 {ext or 'unknown'} 不被微信支持，已转换为 PNG")
+    return converted_path, f"{original_name}.png", 'image/png', converted_path
+
+
 def upload_image(token: str, image_path_or_url: str) -> str | None:
     """上传图片到微信，支持本地路径和远程 URL"""
     url = f"{WECHAT_API_BASE}/media/uploadimg?access_token={token}"
     temp_path = None
+    converted_path = None
 
     if is_remote_url(image_path_or_url):
         temp_path = download_image_to_temp(image_path_or_url)
@@ -459,15 +513,18 @@ def upload_image(token: str, image_path_or_url: str) -> str | None:
         upload_path = image_path_or_url
 
     try:
-        content_type = mimetypes.guess_type(upload_path)[0] or 'image/jpeg'
-        filename = os.path.basename(upload_path) or 'image.jpg'
+        upload_path, filename, content_type, converted_path = prepare_wechat_image_for_upload(upload_path)
         with open(upload_path, 'rb') as f:
             data = request_json("POST", url, files={'media': (filename, f, content_type)})
         if 'url' not in data:
             print(f"上传图片失败: {_safe_error_detail(data)}")
             return None
         return data['url']
+    except Exception as e:
+        print(f"上传图片失败: {e}")
+        return None
     finally:
+        safe_unlink(converted_path)
         safe_unlink(temp_path)
 
 
@@ -594,7 +651,7 @@ def download_image_to_temp(image_url: str, max_bytes: int = MAX_REMOTE_IMAGE_BYT
         content_type = resp.headers.get('Content-Type', 'image/jpeg').split(';', 1)[0].lower()
         ext_map = {
             'image/png': '.png', 'image/jpeg': '.jpg', 'image/jpg': '.jpg',
-            'image/gif': '.gif', 'image/webp': '.webp'
+            'image/gif': '.gif', 'image/webp': '.webp', 'image/svg+xml': '.svg'
         }
         ext = ext_map.get(content_type) or os.path.splitext(urlparse(image_url).path)[1] or '.jpg'
 
@@ -631,11 +688,11 @@ def download_image_to_temp(image_url: str, max_bytes: int = MAX_REMOTE_IMAGE_BYT
 def upload_cover_material(token: str, image_path: str) -> str | None:
     """上传封面图片为微信永久素材，返回 media_id"""
     url = f"{WECHAT_API_BASE}/material/add_material?access_token={token}&type=image"
+    converted_path = None
 
     try:
-        content_type = mimetypes.guess_type(image_path)[0] or 'image/jpeg'
-        filename = os.path.basename(image_path) or 'cover.jpg'
-        with open(image_path, 'rb') as f:
+        upload_path, filename, content_type, converted_path = prepare_wechat_image_for_upload(image_path)
+        with open(upload_path, 'rb') as f:
             files = {'media': (filename, f, content_type)}
             data = request_json("POST", url, files=files)
 
@@ -648,6 +705,8 @@ def upload_cover_material(token: str, image_path: str) -> str | None:
     except Exception as e:
         print(f"  封面上传失败: {e}")
         return None
+    finally:
+        safe_unlink(converted_path)
 
 
 def upload_explicit_cover(token: str, cover_source: str, article_dir: str, label: str) -> str:

@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 import os
 import socket
+import sys
 import tempfile
+import types
 from unittest.mock import patch
 
 import publish_to_wechat as wechat
@@ -183,6 +185,100 @@ def test_remote_image_upload_streams_to_temp_file_and_cleans_up():
         wechat.os.unlink = original_unlink
 
 
+def test_webp_upload_converts_to_png_and_cleans_temp_file():
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            from PIL import Image
+        except ImportError:
+            print("跳过 WebP 转换测试: 未安装 Pillow")
+            return
+
+        image_path = os.path.join(tmp, "source.webp")
+        Image.new("RGB", (2, 2), color=(255, 0, 0)).save(image_path, format="WEBP")
+        uploaded = {}
+        unlinked = []
+
+        original_request_json = wechat.request_json
+        original_unlink = wechat.os.unlink
+
+        def fake_request_json(method, url, files=None, **kwargs):
+            media = files["media"]
+            uploaded["filename"] = media[0]
+            uploaded["content_type"] = media[2]
+            uploaded["path"] = media[1].name
+            assert media[1].read(8).startswith(b"\x89PNG")
+            return {"url": "https://mmbiz.qpic.cn/source.png"}
+
+        def fake_unlink(path):
+            unlinked.append(path)
+            original_unlink(path)
+
+        wechat.request_json = fake_request_json
+        wechat.os.unlink = fake_unlink
+        try:
+            result = wechat.upload_image("token", image_path)
+            assert result == "https://mmbiz.qpic.cn/source.png"
+            assert uploaded["filename"] == "source.png"
+            assert uploaded["content_type"] == "image/png"
+            assert uploaded["path"] in unlinked
+            assert not os.path.exists(uploaded["path"])
+            assert os.path.exists(image_path)
+        finally:
+            wechat.request_json = original_request_json
+            wechat.os.unlink = original_unlink
+
+
+def test_svg_upload_converts_to_png_with_cairosvg_and_cleans_temp_file():
+    with tempfile.TemporaryDirectory() as tmp:
+        image_path = os.path.join(tmp, "diagram.svg")
+        open(image_path, "w").write('<svg xmlns="http://www.w3.org/2000/svg"></svg>')
+        uploaded = {}
+        unlinked = []
+
+        fake_cairosvg = types.ModuleType("cairosvg")
+
+        def fake_svg2png(url, write_to):
+            assert url == image_path
+            with open(write_to, "wb") as f:
+                f.write(b"\x89PNG\r\n\x1a\nfake")
+
+        fake_cairosvg.svg2png = fake_svg2png
+        original_cairosvg = sys.modules.get("cairosvg")
+        original_request_json = wechat.request_json
+        original_unlink = wechat.os.unlink
+
+        def fake_request_json(method, url, files=None, **kwargs):
+            media = files["media"]
+            uploaded["filename"] = media[0]
+            uploaded["content_type"] = media[2]
+            uploaded["path"] = media[1].name
+            assert media[1].read(8).startswith(b"\x89PNG")
+            return {"url": "https://mmbiz.qpic.cn/diagram.png"}
+
+        def fake_unlink(path):
+            unlinked.append(path)
+            original_unlink(path)
+
+        sys.modules["cairosvg"] = fake_cairosvg
+        wechat.request_json = fake_request_json
+        wechat.os.unlink = fake_unlink
+        try:
+            result = wechat.upload_image("token", image_path)
+            assert result == "https://mmbiz.qpic.cn/diagram.png"
+            assert uploaded["filename"] == "diagram.png"
+            assert uploaded["content_type"] == "image/png"
+            assert uploaded["path"] in unlinked
+            assert not os.path.exists(uploaded["path"])
+            assert os.path.exists(image_path)
+        finally:
+            if original_cairosvg is None:
+                sys.modules.pop("cairosvg", None)
+            else:
+                sys.modules["cairosvg"] = original_cairosvg
+            wechat.request_json = original_request_json
+            wechat.os.unlink = original_unlink
+
+
 def test_remote_image_download_rejects_oversized_content_length():
     response = FakeStreamResponse(
         [b"x"],
@@ -334,6 +430,8 @@ def main():
     test_obsidian_embed_duplicate_vault_filenames_abort()
     test_remote_image_keeps_url_for_upload()
     test_remote_image_upload_streams_to_temp_file_and_cleans_up()
+    test_webp_upload_converts_to_png_and_cleans_temp_file()
+    test_svg_upload_converts_to_png_with_cairosvg_and_cleans_temp_file()
     test_remote_image_download_rejects_oversized_content_length()
     test_remote_image_download_rejects_oversized_stream_and_deletes_temp()
     test_generated_mermaid_png_is_deleted_after_upload()
