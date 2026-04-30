@@ -88,6 +88,46 @@ def test_obsidian_embed_image_variants():
         with_fake_upload(run)
 
 
+def test_obsidian_embed_finds_unique_file_in_vault():
+    with tempfile.TemporaryDirectory() as tmp:
+        os.makedirs(os.path.join(tmp, ".obsidian"))
+        article_dir = os.path.join(tmp, "notes", "posts")
+        attachment_dir = os.path.join(tmp, "assets", "wechat")
+        os.makedirs(article_dir)
+        os.makedirs(attachment_dir)
+        image_path = os.path.join(attachment_dir, "fig_1__codex_drives_the_app_.webp")
+        open(image_path, "wb").write(b"webp")
+
+        content = "![[fig_1__codex_drives_the_app_.webp]]"
+
+        def run(calls):
+            _, body = wechat.process_content_workflow(content, "token", article_dir)
+            assert calls == [os.path.realpath(image_path)]
+            assert 'src="https://mmbiz.qpic.cn/fig_1__codex_drives_the_app_.webp"' in body
+
+        with_fake_upload(run)
+
+
+def test_obsidian_embed_duplicate_vault_filenames_abort():
+    with tempfile.TemporaryDirectory() as tmp:
+        os.makedirs(os.path.join(tmp, ".obsidian"))
+        article_dir = os.path.join(tmp, "notes")
+        first_dir = os.path.join(tmp, "assets", "one")
+        second_dir = os.path.join(tmp, "assets", "two")
+        os.makedirs(article_dir)
+        os.makedirs(first_dir)
+        os.makedirs(second_dir)
+        open(os.path.join(first_dir, "duplicate.webp"), "wb").write(b"1")
+        open(os.path.join(second_dir, "duplicate.webp"), "wb").write(b"2")
+
+        try:
+            wechat.process_content_workflow("![[duplicate.webp]]", "token", article_dir)
+        except RuntimeError as e:
+            assert "Vault 中存在多个同名图片" in str(e)
+        else:
+            raise AssertionError("duplicate vault filenames should abort")
+
+
 def test_remote_image_keeps_url_for_upload():
     content = "![Remote](https://example.com/a.png)"
 
@@ -290,6 +330,8 @@ def test_missing_image_aborts_publish_content():
 def main():
     test_standard_markdown_relative_image()
     test_obsidian_embed_image_variants()
+    test_obsidian_embed_finds_unique_file_in_vault()
+    test_obsidian_embed_duplicate_vault_filenames_abort()
     test_remote_image_keeps_url_for_upload()
     test_remote_image_upload_streams_to_temp_file_and_cleans_up()
     test_remote_image_download_rejects_oversized_content_length()

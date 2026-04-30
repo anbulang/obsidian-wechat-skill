@@ -58,6 +58,7 @@ UNSPLASH_FALLBACK_CATEGORIES = [
 ]
 
 GENERATED_MERMAID_IMAGES = set()
+OBSIDIAN_SEARCH_SKIP_DIRS = {'.git', '.obsidian', '.trash', '.venv', '__pycache__', 'node_modules'}
 
 # Admonition SVG 图标
 ADMONITION_ICONS = {
@@ -242,8 +243,42 @@ def safe_unlink(path: str | None) -> None:
         pass
 
 
-def resolve_image_source(image_path_or_url: str, article_dir: str) -> tuple[str | None, str | None]:
-    """解析图片路径：URL 原样返回，本地相对路径基于文章目录解析。"""
+def find_obsidian_vault_root(article_dir: str) -> str:
+    """向上查找 Obsidian vault 根目录；找不到时退回文章目录。"""
+    current = os.path.realpath(os.path.abspath(article_dir))
+    while True:
+        if os.path.isdir(os.path.join(current, '.obsidian')):
+            return current
+        parent = os.path.dirname(current)
+        if parent == current:
+            return os.path.realpath(os.path.abspath(article_dir))
+        current = parent
+
+
+def _is_within_dir(path: str, root: str) -> bool:
+    try:
+        return os.path.commonpath([root, path]) == root
+    except ValueError:
+        return False
+
+
+def _find_unique_vault_file(filename: str, vault_root: str) -> tuple[str | None, str | None]:
+    """在 vault 内按文件名查找唯一附件，避免恢复不安全的 cwd 兜底。"""
+    matches = []
+    for root, dirs, files in os.walk(vault_root):
+        dirs[:] = [d for d in dirs if d not in OBSIDIAN_SEARCH_SKIP_DIRS and not d.startswith('.git')]
+        if filename in files:
+            matches.append(os.path.realpath(os.path.join(root, filename)))
+            if len(matches) > 1:
+                return None, f"Vault 中存在多个同名图片，请在引用中写相对路径: {filename}"
+
+    if matches:
+        return matches[0], None
+    return None, None
+
+
+def resolve_image_source(image_path_or_url: str, article_dir: str, vault_root: str | None = None) -> tuple[str | None, str | None]:
+    """解析图片路径：URL 原样返回，本地相对路径基于文章目录/vault 根目录解析。"""
     source = unquote(image_path_or_url.strip())
     if not source:
         return None, "图片路径为空"
@@ -260,17 +295,27 @@ def resolve_image_source(image_path_or_url: str, article_dir: str) -> tuple[str 
         return None, "本地图片路径不允许包含 .."
 
     article_root = os.path.realpath(os.path.abspath(article_dir))
-    candidate = os.path.realpath(os.path.abspath(os.path.join(article_root, source)))
-    try:
-        common_path = os.path.commonpath([article_root, candidate])
-    except ValueError:
-        return None, "本地图片路径越界"
-    if common_path != article_root:
-        return None, "本地图片路径越界"
-    if not os.path.exists(candidate):
-        return None, f"本地图片不存在: {source}"
+    vault_root = os.path.realpath(os.path.abspath(vault_root or find_obsidian_vault_root(article_root)))
+    search_roots = []
+    for root in [article_root, vault_root]:
+        if root not in search_roots:
+            search_roots.append(root)
 
-    return candidate, None
+    for root in search_roots:
+        candidate = os.path.realpath(os.path.abspath(os.path.join(root, source)))
+        if not _is_within_dir(candidate, root):
+            continue
+        if os.path.exists(candidate):
+            return candidate, None
+
+    if os.path.basename(source) == source and vault_root:
+        found, error = _find_unique_vault_file(source, vault_root)
+        if error:
+            return None, error
+        if found:
+            return found, None
+
+    return None, f"本地图片不存在: {source} (已查找文章目录和 vault 根目录)"
 
 
 def parse_obsidian_image_embed(target: str) -> tuple[str, str]:
