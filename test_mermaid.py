@@ -10,7 +10,6 @@ import types
 sys.path.insert(0, os.path.dirname(__file__))
 
 import publish_to_wechat as wechat
-from publish_to_wechat import process_mermaid
 
 # 测试用的 Markdown 内容
 test_content = """
@@ -105,11 +104,20 @@ def test_playwright_failure_closes_resources_and_deletes_temp_html():
 
 
 def main():
+    html = wechat._build_mermaid_html('graph TD\nA["</pre><script>alert(1)</script>"]')
+    assert '</pre><script>alert(1)</script>' not in html
+    assert '&lt;/pre&gt;&lt;script&gt;alert(1)&lt;/script&gt;' in html
+
     print("=" * 60)
     print("Mermaid 渲染测试")
     print("=" * 60)
 
-    result = process_mermaid(test_content)
+    original = wechat.render_mermaid_locally
+    wechat.render_mermaid_locally = lambda code: None
+    try:
+        result = wechat.process_mermaid(test_content)
+    finally:
+        wechat.render_mermaid_locally = original
 
     print("\n" + "=" * 60)
     print("处理结果:")

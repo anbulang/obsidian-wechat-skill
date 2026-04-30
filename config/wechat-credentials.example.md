@@ -7,7 +7,7 @@ default_author: "作者名"
 default_thumb_media_id: ""
 # Unsplash 自动封面配置（可选）
 unsplash_access_key: ""
-enable_auto_cover: true
+enable_auto_cover: false
 ---
 # 微信公众号凭证配置示例
 
@@ -32,7 +32,7 @@ enable_auto_cover: true
 | default_author         | 默认作者名     | 文章未指定 author 时使用 |
 | default_thumb_media_id | 默认封面图 ID  | 文章未指定封面时使用     |
 | unsplash_access_key    | Unsplash API 密钥 | 自动封面功能             |
-| enable_auto_cover      | 启用自动封面   | true/false               |
+| enable_auto_cover      | 启用自动封面   | 默认 false，开启后会请求外部图片服务 |
 
 ## 配置步骤
 
@@ -73,6 +73,8 @@ curl -s "https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&ap
 如果返回错误码 40164，说明 IP 白名单未配置。
 
 ## Unsplash 自动封面（可选）
+
+默认关闭自动封面，避免在未明确授权时请求外部图片服务。
 
 1. 访问 [Unsplash Developers](https://unsplash.com/developers)
 2. 创建应用获取 Access Key
