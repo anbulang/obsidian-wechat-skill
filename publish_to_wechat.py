@@ -5,7 +5,6 @@ import json
 import base64
 import tempfile
 import zlib
-import random
 import html as html_lib
 import ipaddress
 import mimetypes
@@ -23,7 +22,6 @@ import markdown
 
 CONFIG_FILE = "config/wechat-credentials.local.md"
 WECHAT_API_BASE = "https://api.weixin.qq.com/cgi-bin"
-UNSPLASH_API_BASE = "https://api.unsplash.com"
 DEFAULT_HTTP_TIMEOUT = 30
 TOKEN_REFRESH_MARGIN_SECONDS = 300
 TOKEN_INVALID_ERRCODES = {40001, 42001}
@@ -37,32 +35,25 @@ WECHAT_IMAGE_TYPES = {
     '.gif': 'image/gif',
 }
 COVER_SOURCE_FIELDS = ('banner', 'banner_path', 'cover', 'cover_image', 'thumbnail', 'image', 'featured_image')
+AI_COVER_DEFAULT_PROMPT = """根据下面的微信公众号文章内容生成一张横版封面图。
+要求：画面适合微信公众号封面，现代、清晰、有主题感，不要生成可读文字、Logo、水印或二维码。
 
-# 中文停用词（用于关键词提取）
-CHINESE_STOPWORDS = {'的', '了', '是', '在', '我', '有', '和', '就', '不', '人', '都', '一', '一个', '上', '也', '很', '到', '说', '要', '去', '你', '会', '着', '没有', '看', '好', '自己', '这', '那', '什么', '如何', '为什么', '怎么', '怎样'}
-
-# 中文技术词汇到英文的映射（提升 Unsplash 搜索效果）
-KEYWORD_TRANSLATIONS = {
-    '认证': 'authentication', '登录': 'login', '安全': 'security',
-    '架构': 'architecture', '设计': 'design', '系统': 'system',
-    '数据': 'data', '分析': 'analytics', '人工智能': 'artificial intelligence',
-    '机器学习': 'machine learning', '深度学习': 'deep learning',
-    '编程': 'programming', '开发': 'development', '代码': 'code',
-    '网络': 'network', '云计算': 'cloud computing', '服务器': 'server',
-    '数据库': 'database', '接口': 'API', '前端': 'frontend',
-    '后端': 'backend', '移动': 'mobile', '应用': 'application',
-    '用户': 'user', '产品': 'product', '项目': 'project',
-    '团队': 'team', '管理': 'management', '效率': 'efficiency',
-    '创新': 'innovation', '技术': 'technology', '解决方案': 'solution',
-    '统一': 'unified', '中心': 'center', '平台': 'platform',
-    '集成': 'integration', '门户': 'portal', '单点登录': 'SSO',
+标题：{title}
+摘要：{digest}
+正文：{content}
+"""
+AI_COVER_DEFAULTS = {
+    'openai': {
+        'base_url': 'https://api.openai.com/v1',
+        'endpoint': '/images/generations',
+        'size': '1536x640',
+    },
+    'nanobanana': {
+        'base_url': 'https://api.nanobanana.ai/v1',
+        'endpoint': '/images/generations',
+        'size': '1536x640',
+    },
 }
-
-# Unsplash 通用分类（翻译失败时的降级选项）
-UNSPLASH_FALLBACK_CATEGORIES = [
-    'technology', 'business', 'abstract', 'minimal',
-    'workspace', 'nature', 'architecture', 'gradient'
-]
 
 GENERATED_MERMAID_IMAGES = set()
 OBSIDIAN_SEARCH_SKIP_DIRS = {'.git', '.obsidian', '.trash', '.venv', '__pycache__', 'node_modules'}
@@ -340,22 +331,6 @@ def parse_obsidian_image_embed(target: str) -> tuple[str, str]:
     return src, alt
 
 
-def extract_first_body_image_source(body: str) -> str | None:
-    """从正文中提取首张图片，作为未显式配置封面时的候选。"""
-    obsidian_match = re.search(r'!\[\[([^\]]+)\]\]', body)
-    markdown_match = re.search(r'!\[(.*?)\]\((.*?)\)', body)
-
-    candidates = []
-    if obsidian_match:
-        candidates.append((obsidian_match.start(), parse_obsidian_image_embed(obsidian_match.group(1))[0]))
-    if markdown_match:
-        candidates.append((markdown_match.start(), markdown_match.group(2).strip()))
-
-    if not candidates:
-        return None
-    return min(candidates, key=lambda item: item[0])[1]
-
-
 def build_wechat_image_html(wechat_url: str, alt: str, source: str) -> str:
     is_mermaid = 'MERMAID_DIAGRAM' in alt
     wrapper_class = 'mermaid-wrapper' if is_mermaid else 'image-wrapper'
@@ -545,106 +520,129 @@ def upload_image(token: str, image_path_or_url: str) -> str | None:
         safe_unlink(temp_path)
 
 
-# ================= 自动封面功能 =================
+# ================= AI 封面功能 =================
 
-def translate_to_english(text: str) -> str | None:
-    """将中文翻译为英文，使用多层降级策略"""
-    # 1. 先查硬编码字典（快速缓存）
-    if text in KEYWORD_TRANSLATIONS:
-        return KEYWORD_TRANSLATIONS[text]
+def _strip_markdown_for_prompt(body: str, limit: int = 1200) -> str:
+    """提取一段适合放入生图提示词的正文摘要。"""
+    text = re.sub(r'```[\s\S]*?```', ' ', body)
+    text = re.sub(r'!\[\[([^\]]+)\]\]', ' ', text)
+    text = re.sub(r'!\[(.*?)\]\((.*?)\)', ' ', text)
+    text = re.sub(r'\[(.*?)\]\((.*?)\)', r'\1', text)
+    text = re.sub(r'<[^>]+>', ' ', text)
+    text = re.sub(r'[#>*_`~\-\|]+', ' ', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text[:limit]
 
-    # 2. 尝试在线翻译（translators 库，优先 Google）
+
+def _format_ai_cover_prompt(ai_config: dict, frontmatter: dict, body: str) -> str:
+    template = ai_config.get('prompt_template') or AI_COVER_DEFAULT_PROMPT
+    values = {
+        'title': frontmatter.get('title', ''),
+        'digest': frontmatter.get('digest', ''),
+        'content': _strip_markdown_for_prompt(body),
+    }
     try:
-        import translators as ts
-        result = ts.translate_text(text, from_language='zh', to_language='en', translator='google')
-        if result and result != text:
-            return result
-    except Exception:
-        pass
-
-    return None  # 翻译失败
+        return template.format(**values)
+    except KeyError as e:
+        raise ValueError(f"AI 封面 prompt_template 包含未知占位符: {e}") from e
 
 
-def extract_keywords(title: str, digest: str = "") -> list[str]:
-    """从标题和摘要提取关键词，自动翻译为英文"""
-    text = f"{title} {digest}"
+def _extract_generated_image(data: dict) -> tuple[str | None, str | None]:
+    """兼容常见生图响应，返回 (b64_json, url)。"""
+    candidates = []
+    for key in ('data', 'images', 'output'):
+        value = data.get(key)
+        if isinstance(value, list):
+            candidates.extend(item for item in value if isinstance(item, dict))
+        elif isinstance(value, dict):
+            candidates.append(value)
+    candidates.append(data)
 
-    # 1. 提取英文单词
-    english_words = re.findall(r'[a-zA-Z]{3,}', text)
+    for item in candidates:
+        b64_value = item.get('b64_json') or item.get('base64') or item.get('image_base64')
+        url_value = item.get('url') or item.get('image_url')
+        if b64_value:
+            if isinstance(b64_value, str) and b64_value.startswith('data:image'):
+                b64_value = b64_value.split(',', 1)[-1]
+            return b64_value, None
+        if url_value:
+            return None, url_value
 
-    # 2. 提取中文并翻译
-    chinese_text = re.sub(r'[a-zA-Z0-9\s\W]+', '', text)
-    translated = []
-    if chinese_text:
-        result = translate_to_english(chinese_text[:20])
-        if result:
-            translated = result.split()[:3]
-
-    # 3. 合并去重
-    keywords = []
-    seen = set()
-    for word in english_words + translated:
-        word_lower = word.lower()
-        if word_lower not in seen and len(word) >= 2:
-            seen.add(word_lower)
-            keywords.append(word)
-            if len(keywords) >= 5:
-                break
-
-    # 4. 如果没有关键词，从通用分类随机选一个
-    if not keywords:
-        keywords = [random.choice(UNSPLASH_FALLBACK_CATEGORIES)]
-
-    return keywords
+    return None, None
 
 
-def _search_unsplash(access_key: str, query: str) -> str | None:
-    """执行单次 Unsplash 搜索"""
-    try:
-        data = request_json(
-            "GET",
-            f"{UNSPLASH_API_BASE}/search/photos",
-            params={
-                'query': query,
-                'orientation': 'landscape',  # 横向图片适合微信封面
-                'per_page': 1
-            },
-            headers={'Authorization': f'Client-ID {access_key}'},
-            timeout=10
-        )
-        if data.get('results'):
-            # 使用 regular 尺寸（1080px 宽度，适合微信）
-            return data['results'][0]['urls'].get('regular')
+def _write_base64_image_to_temp(b64_value: str, suffix: str = '.png') -> str:
+    image_bytes = base64.b64decode(b64_value)
+    with tempfile.NamedTemporaryFile(mode='wb', suffix=suffix, delete=False) as f:
+        f.write(image_bytes)
+        return f.name
+
+
+def _ai_cover_endpoint(provider: str, ai_config: dict) -> str:
+    defaults = AI_COVER_DEFAULTS[provider]
+    base_url = (ai_config.get('base_url') or defaults['base_url']).rstrip('/')
+    endpoint = ai_config.get('endpoint') or defaults['endpoint']
+    if endpoint.startswith('http://') or endpoint.startswith('https://'):
+        return endpoint
+    return f"{base_url}/{endpoint.lstrip('/')}"
+
+
+def _request_ai_cover(provider: str, ai_config: dict, prompt: str) -> dict:
+    if provider not in AI_COVER_DEFAULTS:
+        raise ValueError(f"不支持的 AI 封面 provider: {provider}")
+
+    api_key = ai_config.get('api_key')
+    if not api_key:
+        raise ValueError("AI 封面未配置 api_key")
+
+    model = ai_config.get('model')
+    if not model:
+        raise ValueError("AI 封面未配置 model")
+
+    payload = {
+        'model': model,
+        'prompt': prompt,
+        'size': ai_config.get('size') or AI_COVER_DEFAULTS[provider]['size'],
+        'n': ai_config.get('n', 1),
+    }
+    response_format = ai_config.get('response_format')
+    if response_format:
+        payload['response_format'] = response_format
+
+    headers = {'Authorization': f"Bearer {api_key}", 'Content-Type': 'application/json'}
+    return request_json(
+        "POST",
+        _ai_cover_endpoint(provider, ai_config),
+        headers=headers,
+        json=payload,
+        timeout=ai_config.get('timeout', DEFAULT_HTTP_TIMEOUT),
+    )
+
+
+def generate_ai_cover_image(config: dict, frontmatter: dict, body: str) -> str | None:
+    """生成 AI 封面图片到临时文件，返回本地路径；失败时抛错给调用方降级处理。"""
+    ai_config = config.get('ai_cover') or {}
+    if not ai_config.get('enabled', False):
         return None
-    except Exception as e:
-        print(f"  Unsplash 搜索失败: {e}")
-        return None
 
+    provider = (ai_config.get('provider') or 'openai').lower()
+    prompt = _format_ai_cover_prompt(ai_config, frontmatter, body)
+    data = _request_ai_cover(provider, ai_config, prompt)
+    b64_value, image_url = _extract_generated_image(data)
 
-def search_unsplash_cover(access_key: str, keywords: list[str]) -> str | None:
-    """从 Unsplash 搜索横向封面图片，支持降级到通用分类"""
-    if not access_key:
-        return None
+    if b64_value:
+        return _write_base64_image_to_temp(b64_value)
 
-    # 1. 尝试用关键词搜索
-    query = ' '.join(keywords[:3])
-    print(f"  搜索 Unsplash: {query}")
-    image_url = _search_unsplash(access_key, query)
     if image_url:
-        print(f"  ✓ 找到匹配图片")
-        return image_url
+        safe_image_url, error = _validate_remote_image_url(image_url)
+        if error:
+            raise ValueError(f"AI 封面返回了不安全的图片 URL: {error}")
+        temp_path = download_image_to_temp(safe_image_url)
+        if not temp_path:
+            raise RuntimeError("AI 封面图片下载失败")
+        return temp_path
 
-    # 2. 未找到，降级到通用分类随机搜索
-    print(f"  未找到匹配图片，尝试通用分类...")
-    fallback_category = random.choice(UNSPLASH_FALLBACK_CATEGORIES)
-    print(f"  搜索 Unsplash: {fallback_category}")
-    image_url = _search_unsplash(access_key, fallback_category)
-    if image_url:
-        print(f"  ✓ 从 '{fallback_category}' 分类找到图片")
-        return image_url
-
-    print(f"  通用分类也未找到图片")
-    return None
+    raise RuntimeError(f"AI 封面响应中未找到图片: {_safe_error_detail(data)}")
 
 
 def download_image_to_temp(image_url: str, max_bytes: int = MAX_REMOTE_IMAGE_BYTES) -> str | None:
@@ -762,7 +760,7 @@ def upload_explicit_cover(token: str, cover_source: str, article_dir: str, label
     return media_id
 
 
-def resolve_thumb_media_id(frontmatter: dict, config: dict, token: str, article_dir: str, body_cover_source: str | None = None) -> str | None:
+def resolve_thumb_media_id(frontmatter: dict, config: dict, token: str, article_dir: str, body: str = "") -> str | None:
     """按优先级获取草稿封面 media_id。"""
     thumb_media_id = frontmatter.get('thumb_media_id')
     if thumb_media_id:
@@ -775,15 +773,9 @@ def resolve_thumb_media_id(frontmatter: dict, config: dict, token: str, article_
         if cover_source:
             return upload_explicit_cover(token, cover_source, article_dir, field)
 
-    if body_cover_source:
-        print(f"使用正文首图作为封面: {body_cover_source}")
-        return upload_explicit_cover(token, body_cover_source, article_dir, '正文首图')
-
-    title = frontmatter.get('title', "")
-    digest = frontmatter.get('digest', "")
-    auto_cover = get_auto_cover(config, token, title, digest)
-    if auto_cover:
-        return auto_cover
+    ai_cover = get_ai_cover(config, token, frontmatter, body)
+    if ai_cover:
+        return ai_cover
 
     default_cover = config.get('default_thumb_media_id')
     if default_cover:
@@ -791,39 +783,27 @@ def resolve_thumb_media_id(frontmatter: dict, config: dict, token: str, article_
     return default_cover
 
 
-def get_auto_cover(config: dict, token: str, title: str, digest: str = "") -> str | None:
-    """自动获取封面图片的 media_id"""
-    if not config.get('enable_auto_cover', False):
+def get_ai_cover(config: dict, token: str, frontmatter: dict, body: str = "") -> str | None:
+    """生成并上传 AI 封面；失败时按配置策略退回默认封面。"""
+    if not (config.get('ai_cover') or {}).get('enabled', False):
         return None
 
-    access_key = config.get('unsplash_access_key', '')
-    if not access_key:
-        print("  未配置 Unsplash API Key，跳过自动封面")
-        return None
+    print("\n🎨 正在生成 AI 封面图片...")
+    temp_path = None
+    try:
+        temp_path = generate_ai_cover_image(config, frontmatter, body)
+        if not temp_path:
+            return None
+        media_id = upload_cover_material(token, temp_path)
+        if media_id:
+            return media_id
+        print("警告: AI 封面上传失败，将退回默认封面")
+    except Exception as e:
+        print(f"警告: AI 封面生成失败，将退回默认封面: {_redact_text(str(e))}")
+    finally:
+        safe_unlink(temp_path)
 
-    print("\n🎨 自动搜索封面图片...")
-
-    # 1. 提取关键词
-    keywords = extract_keywords(title, digest)
-    print(f"  关键词: {', '.join(keywords)}")
-
-    # 2. 搜索 Unsplash
-    image_url = search_unsplash_cover(access_key, keywords)
-    if not image_url:
-        return None
-
-    # 3. 下载图片
-    temp_path = download_image_to_temp(image_url)
-    if not temp_path:
-        return None
-
-    # 4. 上传到微信
-    media_id = upload_cover_material(token, temp_path)
-
-    # 5. 清理临时文件
-    safe_unlink(temp_path)
-
-    return media_id
+    return None
 
 
 # ================= Mermaid 渲染 =================
@@ -1317,8 +1297,6 @@ def process_content_workflow(content: str, token: str, article_dir: str | None =
         frontmatter = yaml.safe_load(match.group(1))
         body = content[match.end():]
 
-    frontmatter['_body_cover_source'] = extract_first_body_image_source(body)
-
     body = preprocess_markdown(body)
     body = process_mermaid(body)
 
@@ -1413,19 +1391,14 @@ def main(file_path: str) -> None:
         print(e)
         return
 
-    # 封面获取优先级：
-    # 1. frontmatter 中的 thumb_media_id
-    # 2. frontmatter 中的 banner/banner_path/cover/image 等字段（支持 URL 和本地路径）
-    # 3. 正文首图
-    # 4. Unsplash 自动搜索
-    # 5. 默认封面
+    # 封面获取优先级：thumb_media_id -> 显式封面字段 -> AI 生成封面 -> 默认封面。
     try:
         thumb_media_id = resolve_thumb_media_id(
             frontmatter,
             config,
             token,
             article_dir,
-            frontmatter.get('_body_cover_source')
+            processed_body,
         )
     except RuntimeError as e:
         print(e)

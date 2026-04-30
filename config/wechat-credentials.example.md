@@ -5,9 +5,21 @@ access_token: ""
 token_expires: 0
 default_author: "作者名"
 default_thumb_media_id: ""
-# Unsplash 自动封面配置（可选）
-unsplash_access_key: ""
-enable_auto_cover: false
+# AI 自动封面配置（可选）
+ai_cover:
+  enabled: false
+  provider: "openai" # openai | nanobanana
+  api_key: ""
+  base_url: ""
+  endpoint: "/images/generations"
+  model: ""
+  size: "1536x640"
+  prompt_template: |
+    根据下面的微信公众号文章内容生成一张横版封面图。
+    要求：画面适合微信公众号封面，现代、清晰、有主题感，不要生成可读文字、Logo、水印或二维码。
+    标题：{title}
+    摘要：{digest}
+    正文：{content}
 ---
 # 微信公众号凭证配置示例
 
@@ -31,8 +43,7 @@ enable_auto_cover: false
 | token_expires          | 令牌过期时间戳 | 自动填充，无需手动设置   |
 | default_author         | 默认作者名     | 文章未指定 author 时使用 |
 | default_thumb_media_id | 默认封面图 ID  | 文章未指定封面时使用     |
-| unsplash_access_key    | Unsplash API 密钥 | 自动封面功能             |
-| enable_auto_cover      | 启用自动封面   | 默认 false，开启后会请求外部图片服务 |
+| ai_cover               | AI 自动封面配置 | 默认关闭，开启后会请求配置的生图服务 |
 
 ## 配置步骤
 
@@ -72,11 +83,11 @@ curl -s "https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&ap
 
 如果返回错误码 40164，说明 IP 白名单未配置。
 
-## Unsplash 自动封面（可选）
+## AI 自动封面（可选）
 
-默认关闭自动封面，避免在未明确授权时请求外部图片服务。
+默认关闭自动封面，避免在未明确授权时请求外部生图服务。
 
-1. 访问 [Unsplash Developers](https://unsplash.com/developers)
-2. 创建应用获取 Access Key
-3. 填入 `unsplash_access_key` 字段
-4. 设置 `enable_auto_cover: true`
+1. 在 `ai_cover.provider` 中选择 `openai` 或 `nanobanana`
+2. 填入对应服务的 `api_key`、`base_url`、`model`
+3. 设置 `ai_cover.enabled: true`
+4. 如需定制风格，修改 `prompt_template`

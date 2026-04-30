@@ -142,15 +142,6 @@ def test_remote_image_keeps_url_for_upload():
     with_fake_upload(run)
 
 
-def test_first_body_image_source_prefers_earliest_image_syntax():
-    content = "\n".join([
-        "intro",
-        "![[cover.webp|说明]]",
-        "![Later](later.png)",
-    ])
-    assert wechat.extract_first_body_image_source(content) == "cover.webp"
-
-
 def test_remote_image_upload_streams_to_temp_file_and_cleans_up():
     response = FakeStreamResponse(
         [b"abc", b"def"],
@@ -438,7 +429,6 @@ def main():
     test_obsidian_embed_finds_unique_file_in_vault()
     test_obsidian_embed_duplicate_vault_filenames_abort()
     test_remote_image_keeps_url_for_upload()
-    test_first_body_image_source_prefers_earliest_image_syntax()
     test_remote_image_upload_streams_to_temp_file_and_cleans_up()
     test_webp_upload_converts_to_png_and_cleans_temp_file()
     test_svg_upload_converts_to_png_with_cairosvg_and_cleans_temp_file()
