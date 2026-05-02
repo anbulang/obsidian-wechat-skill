@@ -55,6 +55,7 @@ AI_COVER_DEFAULTS = {
         'aspect_ratio': '16:9',
     },
     'command': {},
+    'codex_cli': {},
 }
 AI_COVER_PROVIDER_ALIASES = {
     'nanobanana': 'gemini',
@@ -663,6 +664,72 @@ def _generate_ai_cover_with_command(ai_config: dict, prompt: str, frontmatter: d
             safe_unlink(output_path)
 
 
+def _build_codex_cli_prompt(prompt: str, output_path: str, frontmatter: dict) -> str:
+    return f"""请使用你可用的图片生成能力，为微信公众号文章生成一张横版封面图。
+
+硬性要求：
+- 必须生成真实位图图片，不要只写 SVG/HTML/占位图/纯色图。
+- 图片比例优先 16:9，适合微信公众号封面。
+- 不要在图片中生成可读文字、Logo、水印或二维码。
+- 必须把最终图片保存到这个绝对路径：{output_path}
+- 保存完成后只用一句话确认文件已写入，不要输出 base64。
+
+文章标题：{frontmatter.get('title', '')}
+文章摘要：{frontmatter.get('digest', '')}
+
+封面生成提示词：
+{prompt}
+"""
+
+
+def _generate_ai_cover_with_codex_cli(ai_config: dict, prompt: str, frontmatter: dict) -> str:
+    codex_command = ai_config.get('codex_command') or ai_config.get('command') or 'codex'
+    suffix = ai_config.get('output_suffix') or '.png'
+    output_path = None
+    temp_dir = None
+    keep_output = False
+    try:
+        temp_dir = tempfile.mkdtemp(prefix='wechat-codex-cover-')
+        output_path = os.path.join(temp_dir, f'cover{suffix}')
+        codex_prompt = _build_codex_cli_prompt(prompt, output_path, frontmatter)
+
+        args = [codex_command, 'exec', '--skip-git-repo-check', '--sandbox', 'workspace-write', '-C', temp_dir]
+        model = ai_config.get('model')
+        if model:
+            args.extend(['--model', str(model)])
+        profile = ai_config.get('profile')
+        if profile:
+            args.extend(['--profile', str(profile)])
+        for arg in ai_config.get('codex_args') or []:
+            args.append(str(arg))
+        args.append(codex_prompt)
+
+        result = subprocess.run(
+            args,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=ai_config.get('timeout', 900),
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or '').strip()
+            raise RuntimeError(f"Codex CLI 生图失败 ({result.returncode}): {_redact_text(detail[:800])}")
+
+        if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+            detail = (result.stdout or result.stderr or '').strip()
+            raise RuntimeError(f"Codex CLI 未生成有效图片文件: {_redact_text(detail[:800])}")
+
+        keep_output = True
+        return output_path
+    finally:
+        if temp_dir and not keep_output:
+            try:
+                import shutil
+                shutil.rmtree(temp_dir, ignore_errors=True)
+            except Exception:
+                pass
+
+
 def _ai_cover_endpoint(provider: str, ai_config: dict) -> str:
     defaults = AI_COVER_DEFAULTS[provider]
     base_url = (ai_config.get('base_url') or defaults['base_url']).rstrip('/')
@@ -755,6 +822,8 @@ def generate_ai_cover_image(config: dict, frontmatter: dict, body: str) -> str |
     prompt = _format_ai_cover_prompt(ai_config, frontmatter, body)
     if provider == 'command':
         return _generate_ai_cover_with_command(ai_config, prompt, frontmatter)
+    if provider == 'codex_cli':
+        return _generate_ai_cover_with_codex_cli(ai_config, prompt, frontmatter)
 
     data = _request_ai_cover(provider, ai_config, prompt)
     b64_value, image_url = _extract_generated_image(data)

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import socket
+import subprocess
 import sys
 import tempfile
 from unittest.mock import patch
@@ -454,6 +455,70 @@ def test_command_ai_cover_provider_reports_empty_output():
         raise AssertionError("empty command output should fail")
 
 
+def test_codex_cli_ai_cover_provider_invokes_codex_exec():
+    calls = []
+    original_run = subprocess.run
+
+    def fake_run(args, **kwargs):
+        calls.append((args, kwargs))
+        output_path = args[-1].split("必须把最终图片保存到这个绝对路径：", 1)[1].splitlines()[0].strip()
+        with open(output_path, "wb") as f:
+            f.write(b"\x89PNG\r\n\x1a\ncodex")
+        return subprocess.CompletedProcess(args, 0, stdout="done", stderr="")
+
+    subprocess.run = fake_run
+    try:
+        path = wechat.generate_ai_cover_image(
+            {
+                "ai_cover": {
+                    "enabled": True,
+                    "provider": "codex_cli",
+                    "codex_command": "codex",
+                    "model": "gpt-5.5",
+                    "codex_args": ["--ephemeral"],
+                }
+            },
+            {"title": "Title", "digest": "Digest"},
+            "body",
+        )
+        assert os.path.exists(path)
+        assert open(path, "rb").read().startswith(b"\x89PNG")
+        args, kwargs = calls[0]
+        assert args[:2] == ["codex", "exec"]
+        assert "--skip-git-repo-check" in args
+        assert "--sandbox" in args
+        assert "--model" in args
+        assert "gpt-5.5" in args
+        assert "--ephemeral" in args
+        assert kwargs["timeout"] == 900
+    finally:
+        subprocess.run = original_run
+        if 'path' in locals() and os.path.exists(path):
+            os.unlink(path)
+
+
+def test_codex_cli_ai_cover_provider_reports_missing_file():
+    original_run = subprocess.run
+    subprocess.run = lambda args, **kwargs: subprocess.CompletedProcess(args, 0, stdout="no file", stderr="")
+    try:
+        wechat.generate_ai_cover_image(
+            {
+                "ai_cover": {
+                    "enabled": True,
+                    "provider": "codex_cli",
+                }
+            },
+            {"title": "Title"},
+            "body",
+        )
+    except RuntimeError as e:
+        assert "Codex CLI 未生成有效图片文件" in str(e)
+    else:
+        raise AssertionError("missing Codex CLI output should fail")
+    finally:
+        subprocess.run = original_run
+
+
 def main():
     test_thumb_media_id_has_highest_priority()
     test_banner_local_path_is_resolved_from_article_dir()
@@ -475,6 +540,8 @@ def main():
     test_gemini_endpoint_expands_model_placeholder()
     test_command_ai_cover_provider_writes_output_file()
     test_command_ai_cover_provider_reports_empty_output()
+    test_codex_cli_ai_cover_provider_invokes_codex_exec()
+    test_codex_cli_ai_cover_provider_reports_missing_file()
     print("✅ 封面处理测试通过")
 
 
