@@ -291,7 +291,7 @@ def test_ai_cover_failure_falls_back_to_default_cover():
     try:
         result = wechat.resolve_thumb_media_id(
             {"title": "Title"},
-            {"default_thumb_media_id": "default_media", "ai_cover": {"enabled": True}},
+            {"default_thumb_media_id": "default_media", "ai_cover": {"enabled": True, "local_fallback": False}},
             "token",
             "/tmp",
             "body",
@@ -299,6 +299,36 @@ def test_ai_cover_failure_falls_back_to_default_cover():
         assert result == "default_media"
     finally:
         setattr(wechat, "generate_ai_cover_image", original_generate)
+
+
+def test_ai_cover_failure_uses_local_fallback_before_default_cover():
+    calls = []
+    original_generate = patch_attr("generate_ai_cover_image", lambda config, frontmatter, body: (_ for _ in ()).throw(RuntimeError("boom")))
+    original_upload = patch_attr("upload_cover_material", lambda token, src: calls.append(src) or "local_media")
+    try:
+        result = wechat.resolve_thumb_media_id(
+            {"title": "Title"},
+            {"default_thumb_media_id": "default_media", "ai_cover": {"enabled": True}},
+            "token",
+            "/tmp",
+            "body",
+        )
+        assert result == "local_media"
+        assert len(calls) == 1
+        assert not os.path.exists(calls[0])
+    finally:
+        setattr(wechat, "generate_ai_cover_image", original_generate)
+        setattr(wechat, "upload_cover_material", original_upload)
+
+
+def test_local_cover_generator_creates_png():
+    path = wechat._generate_local_cover_image("prompt", {"title": "Title", "digest": "Digest"})
+    try:
+        assert os.path.exists(path)
+        assert open(path, "rb").read(8).startswith(b"\x89PNG")
+        assert os.path.getsize(path) > 1000
+    finally:
+        os.unlink(path)
 
 
 def test_openai_ai_cover_adapter_writes_base64_image():
@@ -566,6 +596,8 @@ def main():
     test_body_first_image_is_not_used_as_cover()
     test_ai_cover_is_used_before_default_cover()
     test_ai_cover_failure_falls_back_to_default_cover()
+    test_ai_cover_failure_uses_local_fallback_before_default_cover()
+    test_local_cover_generator_creates_png()
     test_openai_ai_cover_adapter_writes_base64_image()
     test_gemini_ai_cover_adapter_writes_inline_data_image()
     test_nanobanana_provider_alias_uses_gemini_adapter()

@@ -665,13 +665,13 @@ def _generate_ai_cover_with_command(ai_config: dict, prompt: str, frontmatter: d
 
 
 def _build_codex_cli_prompt(prompt: str, output_path: str, frontmatter: dict) -> str:
-    return f"""请使用你可用的图片生成能力，为微信公众号文章生成一张横版封面图。
+    return f"""请为微信公众号文章生成一张横版封面图，并保存为 PNG 文件。
 
 硬性要求：
-- 必须生成真实位图图片，不要只写 SVG/HTML/占位图/纯色图。
-- 图片比例优先 16:9，适合微信公众号封面。
-- 不要在图片中生成可读文字、Logo、水印或二维码。
 - 必须把最终图片保存到这个绝对路径：{output_path}
+- 如果你没有专门的生图工具，请直接运行 Python/Pillow 创建一张现代、清晰、抽象科技风的 16:9 位图封面。
+- 不要等待用户确认，不要打开交互界面，不要输出 base64。
+- 不要在图片中生成可读文字、Logo、水印或二维码。
 - 保存完成后只用一句话确认文件已写入，不要输出 base64。
 
 文章标题：{frontmatter.get('title', '')}
@@ -680,6 +680,62 @@ def _build_codex_cli_prompt(prompt: str, output_path: str, frontmatter: dict) ->
 封面生成提示词：
 {prompt}
 """
+
+
+def _generate_local_cover_image(prompt: str, frontmatter: dict, suffix: str = '.png') -> str:
+    """本地生成一张可上传封面，避免外部生图失败时退回默认封面。"""
+    try:
+        from PIL import Image, ImageDraw, ImageFilter
+    except ImportError as e:
+        raise RuntimeError("本地封面生成需要 Pillow") from e
+
+    width, height = 1536, 864
+    title = str(frontmatter.get('title') or '')
+    digest = str(frontmatter.get('digest') or '')
+    seed_text = f"{title}\n{digest}\n{prompt}"
+    seed = zlib.crc32(seed_text.encode('utf-8'))
+
+    palettes = [
+        ((20, 34, 52), (26, 105, 122), (240, 181, 82), (246, 248, 243)),
+        ((42, 40, 61), (91, 114, 117), (223, 111, 83), (248, 244, 235)),
+        ((18, 51, 59), (88, 128, 97), (232, 191, 109), (247, 246, 237)),
+        ((47, 50, 56), (104, 137, 145), (214, 99, 91), (245, 241, 230)),
+    ]
+    bg_a, bg_b, accent_a, accent_b = palettes[seed % len(palettes)]
+
+    image = Image.new('RGB', (width, height), bg_a)
+    pixels = image.load()
+    for y in range(height):
+        t = y / max(height - 1, 1)
+        for x in range(width):
+            wave = ((x + (seed % 311)) % width) / width
+            mix = min(1, max(0, t * 0.75 + wave * 0.25))
+            pixels[x, y] = tuple(int(bg_a[i] * (1 - mix) + bg_b[i] * mix) for i in range(3))
+
+    overlay = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    for i in range(10):
+        x = int((seed * (i + 3) % width) - width * 0.15)
+        y = int((seed // (i + 5) % height) - height * 0.15)
+        r = int(width * (0.12 + ((seed >> i) & 7) / 50))
+        color = accent_a if i % 2 == 0 else accent_b
+        alpha = 28 + (seed >> (i % 12)) % 46
+        draw.ellipse((x, y, x + r * 2, y + r * 2), fill=(*color, alpha))
+
+    for i in range(22):
+        x1 = int((seed * (i + 11) % width))
+        y1 = int((seed // (i + 7) % height))
+        x2 = int((x1 + width * (0.18 + (i % 5) * 0.04)) % width)
+        y2 = int((y1 + height * (0.05 + (i % 4) * 0.03)) % height)
+        draw.line((x1, y1, x2, y2), fill=(*accent_b, 38), width=3)
+        draw.ellipse((x1 - 4, y1 - 4, x1 + 4, y1 + 4), fill=(*accent_a, 90))
+
+    image = Image.alpha_composite(image.convert('RGBA'), overlay.filter(ImageFilter.GaussianBlur(radius=1.2)))
+    image = image.convert('RGB')
+
+    with tempfile.NamedTemporaryFile(mode='wb', suffix=suffix, delete=False) as f:
+        image.save(f.name, format='PNG')
+        return f.name
 
 
 def _generate_ai_cover_with_codex_cli(ai_config: dict, prompt: str, frontmatter: dict) -> str:
@@ -992,21 +1048,34 @@ def resolve_thumb_media_id(frontmatter: dict, config: dict, token: str, article_
 
 def get_ai_cover(config: dict, token: str, frontmatter: dict, body: str = "") -> str | None:
     """生成并上传 AI 封面；失败时按配置策略退回默认封面。"""
-    if not (config.get('ai_cover') or {}).get('enabled', False):
+    ai_config = config.get('ai_cover') or {}
+    if not ai_config.get('enabled', False):
         return None
 
     print("\n🎨 正在生成 AI 封面图片...")
     temp_path = None
     try:
         temp_path = generate_ai_cover_image(config, frontmatter, body)
+    except Exception as e:
+        print(f"警告: AI 封面生成失败，尝试本地封面兜底: {_redact_text(str(e))}")
+        if ai_config.get('local_fallback', True):
+            try:
+                prompt = _format_ai_cover_prompt(ai_config, frontmatter, body)
+                temp_path = _generate_local_cover_image(prompt, frontmatter, ai_config.get('output_suffix') or '.png')
+                print("  ✓ 已生成本地兜底封面")
+            except Exception as fallback_error:
+                print(f"警告: 本地封面兜底失败，将退回默认封面: {_redact_text(str(fallback_error))}")
+                return None
+        else:
+            return None
+
+    try:
         if not temp_path:
             return None
         media_id = upload_cover_material(token, temp_path)
         if media_id:
             return media_id
         print("警告: AI 封面上传失败，将退回默认封面")
-    except Exception as e:
-        print(f"警告: AI 封面生成失败，将退回默认封面: {_redact_text(str(e))}")
     finally:
         safe_unlink(temp_path)
 
