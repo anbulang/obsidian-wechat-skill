@@ -685,6 +685,7 @@ def _build_codex_cli_prompt(prompt: str, output_path: str, frontmatter: dict) ->
 def _generate_ai_cover_with_codex_cli(ai_config: dict, prompt: str, frontmatter: dict) -> str:
     codex_command = ai_config.get('codex_command') or ai_config.get('command') or 'codex'
     suffix = ai_config.get('output_suffix') or '.png'
+    timeout = ai_config.get('codex_timeout', ai_config.get('timeout', 120))
     output_path = None
     temp_dir = None
     keep_output = False
@@ -693,8 +694,8 @@ def _generate_ai_cover_with_codex_cli(ai_config: dict, prompt: str, frontmatter:
         output_path = os.path.join(temp_dir, f'cover{suffix}')
         codex_prompt = _build_codex_cli_prompt(prompt, output_path, frontmatter)
 
-        args = [codex_command, 'exec', '--skip-git-repo-check', '--sandbox', 'workspace-write', '-C', temp_dir]
-        model = ai_config.get('model')
+        args = [codex_command, 'exec', '--skip-git-repo-check', '--full-auto', '-C', temp_dir]
+        model = ai_config.get('codex_model')
         if model:
             args.extend(['--model', str(model)])
         profile = ai_config.get('profile')
@@ -709,7 +710,7 @@ def _generate_ai_cover_with_codex_cli(ai_config: dict, prompt: str, frontmatter:
             check=False,
             capture_output=True,
             text=True,
-            timeout=ai_config.get('timeout', 900),
+            timeout=timeout,
         )
         if result.returncode != 0:
             detail = (result.stderr or result.stdout or '').strip()
@@ -721,6 +722,11 @@ def _generate_ai_cover_with_codex_cli(ai_config: dict, prompt: str, frontmatter:
 
         keep_output = True
         return output_path
+    except subprocess.TimeoutExpired as e:
+        detail = (e.stderr or e.stdout or '')
+        if isinstance(detail, bytes):
+            detail = detail.decode('utf-8', errors='replace')
+        raise RuntimeError(f"Codex CLI 生图超时 ({timeout}s): {_redact_text(str(detail)[:800])}") from e
     finally:
         if temp_dir and not keep_output:
             try:

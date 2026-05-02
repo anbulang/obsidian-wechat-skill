@@ -18,7 +18,9 @@ ai_cover:
   image_size: "" # Gemini 可选，如 2K
   command: [] # command provider 使用：["/path/to/generate-cover", "--prompt-file", "{prompt_file}", "--output", "{output_file}"]
   codex_command: "codex" # codex_cli provider 使用
+  codex_model: "" # codex_cli 可选；留空使用 Codex CLI 默认模型
   codex_args: [] # codex_cli 可选额外参数，如 ["--profile", "your-profile"]
+  codex_timeout: 120 # codex_cli 最长等待秒数，超时会回退默认封面
   output_suffix: ".png"
   prompt_template: |
     根据下面的微信公众号文章内容生成一张横版封面图。

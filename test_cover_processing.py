@@ -474,7 +474,8 @@ def test_codex_cli_ai_cover_provider_invokes_codex_exec():
                     "enabled": True,
                     "provider": "codex_cli",
                     "codex_command": "codex",
-                    "model": "gpt-5.5",
+                    "model": "gemini-3.1-flash-image-preview",
+                    "codex_model": "gpt-5.5",
                     "codex_args": ["--ephemeral"],
                 }
             },
@@ -486,11 +487,12 @@ def test_codex_cli_ai_cover_provider_invokes_codex_exec():
         args, kwargs = calls[0]
         assert args[:2] == ["codex", "exec"]
         assert "--skip-git-repo-check" in args
-        assert "--sandbox" in args
+        assert "--full-auto" in args
         assert "--model" in args
         assert "gpt-5.5" in args
+        assert "gemini-3.1-flash-image-preview" not in args
         assert "--ephemeral" in args
-        assert kwargs["timeout"] == 900
+        assert kwargs["timeout"] == 120
     finally:
         subprocess.run = original_run
         if 'path' in locals() and os.path.exists(path):
@@ -519,6 +521,36 @@ def test_codex_cli_ai_cover_provider_reports_missing_file():
         subprocess.run = original_run
 
 
+def test_codex_cli_ai_cover_provider_uses_configured_timeout():
+    calls = []
+    original_run = subprocess.run
+
+    def fake_run(args, **kwargs):
+        calls.append(kwargs["timeout"])
+        raise subprocess.TimeoutExpired(args, kwargs["timeout"], output="still running")
+
+    subprocess.run = fake_run
+    try:
+        wechat.generate_ai_cover_image(
+            {
+                "ai_cover": {
+                    "enabled": True,
+                    "provider": "codex_cli",
+                    "codex_timeout": 3,
+                }
+            },
+            {"title": "Title"},
+            "body",
+        )
+    except RuntimeError as e:
+        assert "Codex CLI 生图超时 (3s)" in str(e)
+        assert calls == [3]
+    else:
+        raise AssertionError("Codex CLI timeout should fail fast")
+    finally:
+        subprocess.run = original_run
+
+
 def main():
     test_thumb_media_id_has_highest_priority()
     test_banner_local_path_is_resolved_from_article_dir()
@@ -542,6 +574,7 @@ def main():
     test_command_ai_cover_provider_reports_empty_output()
     test_codex_cli_ai_cover_provider_invokes_codex_exec()
     test_codex_cli_ai_cover_provider_reports_missing_file()
+    test_codex_cli_ai_cover_provider_uses_configured_timeout()
     print("✅ 封面处理测试通过")
 
 
