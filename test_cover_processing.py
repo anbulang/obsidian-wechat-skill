@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import socket
+import sys
 import tempfile
 from unittest.mock import patch
 
@@ -413,6 +414,46 @@ def test_gemini_endpoint_expands_model_placeholder():
     assert endpoint == "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent"
 
 
+def test_command_ai_cover_provider_writes_output_file():
+    script = "import pathlib, sys; pathlib.Path(sys.argv[2]).write_bytes(b'\\x89PNG\\r\\n\\x1a\\ncmd')"
+    path = wechat.generate_ai_cover_image(
+        {
+            "ai_cover": {
+                "enabled": True,
+                "provider": "command",
+                "command": [sys.executable, "-c", script, "{prompt_file}", "{output_file}"],
+                "output_suffix": ".png",
+            }
+        },
+        {"title": "Title", "digest": "Digest"},
+        "body",
+    )
+    try:
+        assert os.path.exists(path)
+        assert open(path, "rb").read().startswith(b"\x89PNG")
+    finally:
+        os.unlink(path)
+
+
+def test_command_ai_cover_provider_reports_empty_output():
+    try:
+        wechat.generate_ai_cover_image(
+            {
+                "ai_cover": {
+                    "enabled": True,
+                    "provider": "command",
+                    "command": [sys.executable, "-c", "pass", "{prompt_file}", "{output_file}"],
+                }
+            },
+            {"title": "Title"},
+            "body",
+        )
+    except RuntimeError as e:
+        assert "未生成有效图片文件" in str(e)
+    else:
+        raise AssertionError("empty command output should fail")
+
+
 def main():
     test_thumb_media_id_has_highest_priority()
     test_banner_local_path_is_resolved_from_article_dir()
@@ -432,6 +473,8 @@ def main():
     test_gemini_ai_cover_adapter_writes_inline_data_image()
     test_nanobanana_provider_alias_uses_gemini_adapter()
     test_gemini_endpoint_expands_model_placeholder()
+    test_command_ai_cover_provider_writes_output_file()
+    test_command_ai_cover_provider_reports_empty_output()
     print("✅ 封面处理测试通过")
 
 

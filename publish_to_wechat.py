@@ -8,6 +8,8 @@ import zlib
 import html as html_lib
 import ipaddress
 import mimetypes
+import shlex
+import subprocess
 import time
 from datetime import datetime
 import socket
@@ -52,6 +54,7 @@ AI_COVER_DEFAULTS = {
         'base_url': 'https://generativelanguage.googleapis.com/v1beta',
         'aspect_ratio': '16:9',
     },
+    'command': {},
 }
 AI_COVER_PROVIDER_ALIASES = {
     'nanobanana': 'gemini',
@@ -600,6 +603,66 @@ def _write_base64_image_to_temp(b64_value: str, suffix: str = '.png') -> str:
         return f.name
 
 
+def _format_command_args(command, values: dict) -> list[str]:
+    if isinstance(command, str):
+        args = shlex.split(command)
+    elif isinstance(command, list):
+        args = [str(item) for item in command]
+    else:
+        raise ValueError("AI 封面 command 必须是字符串或参数列表")
+
+    if not args:
+        raise ValueError("AI 封面 command 为空")
+
+    return [arg.format(**values) for arg in args]
+
+
+def _generate_ai_cover_with_command(ai_config: dict, prompt: str, frontmatter: dict) -> str:
+    command = ai_config.get('command')
+    if not command:
+        raise ValueError("provider: command 需要配置 command")
+
+    suffix = ai_config.get('output_suffix') or '.png'
+    prompt_path = None
+    output_path = None
+    keep_output = False
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
+            prompt_path = f.name
+            f.write(prompt)
+
+        with tempfile.NamedTemporaryFile(mode='wb', suffix=suffix, delete=False) as f:
+            output_path = f.name
+
+        values = {
+            'prompt_file': prompt_path,
+            'output_file': output_path,
+            'title': frontmatter.get('title', ''),
+            'digest': frontmatter.get('digest', ''),
+        }
+        args = _format_command_args(command, values)
+        result = subprocess.run(
+            args,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=ai_config.get('timeout', 300),
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or '').strip()
+            raise RuntimeError(f"AI 封面 command 执行失败 ({result.returncode}): {_redact_text(detail[:500])}")
+
+        if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+            raise RuntimeError("AI 封面 command 未生成有效图片文件")
+
+        keep_output = True
+        return output_path
+    finally:
+        safe_unlink(prompt_path)
+        if output_path and not keep_output:
+            safe_unlink(output_path)
+
+
 def _ai_cover_endpoint(provider: str, ai_config: dict) -> str:
     defaults = AI_COVER_DEFAULTS[provider]
     base_url = (ai_config.get('base_url') or defaults['base_url']).rstrip('/')
@@ -690,6 +753,9 @@ def generate_ai_cover_image(config: dict, frontmatter: dict, body: str) -> str |
 
     provider = _normalize_ai_cover_provider(ai_config.get('provider') or 'openai')
     prompt = _format_ai_cover_prompt(ai_config, frontmatter, body)
+    if provider == 'command':
+        return _generate_ai_cover_with_command(ai_config, prompt, frontmatter)
+
     data = _request_ai_cover(provider, ai_config, prompt)
     b64_value, image_url = _extract_generated_image(data)
 
