@@ -8,20 +8,16 @@ default_thumb_media_id: ""
 # AI 自动封面配置（可选）
 ai_cover:
   enabled: false
-  provider: "openai" # openai | gemini | codex_cli | command
+  provider: "doubao" # doubao | openai | gemini
   api_key: ""
-  base_url: ""
-  endpoint: "" # 可选；OpenAI 默认 /images/generations，Gemini 默认 /models/{model}:generateContent
-  model: ""
-  size: "1536x640"
+  base_url: "https://operator.las.cn-beijing.volces.com"
+  endpoint: "/api/v1/online/images/generations"
+  model: "doubao-seedream-4-5-251128"
+  size: "1536x864"
+  response_format: "b64_json"
+  watermark: false
   aspect_ratio: "16:9" # Gemini 使用
   image_size: "" # Gemini 可选，如 2K
-  command: [] # command provider 使用：["/path/to/generate-cover", "--prompt-file", "{prompt_file}", "--output", "{output_file}"]
-  codex_command: "codex" # codex_cli provider 使用
-  codex_model: "" # codex_cli 可选；留空使用 Codex CLI 默认模型
-  codex_args: [] # codex_cli 可选额外参数，如 ["--profile", "your-profile"]
-  codex_timeout: 120 # codex_cli 最长等待秒数，超时会回退默认封面
-  local_fallback: true # 外部生图失败时本地生成一张可用 PNG 封面
   output_suffix: ".png"
   prompt_template: |
     根据下面的微信公众号文章内容生成一张横版封面图。
@@ -96,13 +92,9 @@ curl -s "https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&ap
 
 默认关闭自动封面，避免在未明确授权时请求外部生图服务。
 
-1. 在 `ai_cover.provider` 中选择 `openai`、`gemini`、`codex_cli` 或 `command`
+1. 在 `ai_cover.provider` 中选择 `doubao`、`openai` 或 `gemini`
 2. 填入对应服务的 `api_key`、`base_url`、`model`
 3. 设置 `ai_cover.enabled: true`
 4. 如需定制风格，修改 `prompt_template`
 
 > 说明：Nano Banana 是 Gemini 的图片生成能力，请使用 `provider: "gemini"`。旧的 `provider: "nanobanana"` 会作为兼容别名处理。
-
-`provider: "command"` 不需要 API key。脚本会把提示词写入 `{prompt_file}`，并要求命令把图片写到 `{output_file}`；生成出的图片会继续走微信封面上传流程。
-
-`provider: "codex_cli"` 不需要在此配置 API key。脚本会调用本机 `codex exec`，要求 Codex CLI 把生成图片保存到指定临时路径；如果 CLI 超时或未生成图片，默认会先用本地 Pillow 生成兜底封面，再上传到微信。

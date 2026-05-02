@@ -8,8 +8,6 @@ import zlib
 import html as html_lib
 import ipaddress
 import mimetypes
-import shlex
-import subprocess
 import time
 from datetime import datetime
 import socket
@@ -54,8 +52,13 @@ AI_COVER_DEFAULTS = {
         'base_url': 'https://generativelanguage.googleapis.com/v1beta',
         'aspect_ratio': '16:9',
     },
-    'command': {},
-    'codex_cli': {},
+    'doubao': {
+        'base_url': 'https://operator.las.cn-beijing.volces.com',
+        'endpoint': '/api/v1/online/images/generations',
+        'model': 'doubao-seedream-4-5-251128',
+        'size': '1536x864',
+        'response_format': 'b64_json',
+    },
 }
 AI_COVER_PROVIDER_ALIASES = {
     'nanobanana': 'gemini',
@@ -569,9 +572,19 @@ def _extract_generated_image(data: dict) -> tuple[str | None, str | None]:
     for key in ('data', 'images', 'output'):
         value = data.get(key)
         if isinstance(value, list):
-            candidates.extend(item for item in value if isinstance(item, dict))
+            for item in value:
+                if isinstance(item, dict):
+                    candidates.append(item)
+                elif isinstance(item, str):
+                    if item.startswith('http://') or item.startswith('https://'):
+                        return None, item
+                    return item, None
         elif isinstance(value, dict):
             candidates.append(value)
+        elif isinstance(value, str):
+            if value.startswith('http://') or value.startswith('https://'):
+                return None, value
+            return value, None
     candidates.append(data)
 
     for candidate in data.get('candidates', []):
@@ -602,194 +615,6 @@ def _write_base64_image_to_temp(b64_value: str, suffix: str = '.png') -> str:
     with tempfile.NamedTemporaryFile(mode='wb', suffix=suffix, delete=False) as f:
         f.write(image_bytes)
         return f.name
-
-
-def _format_command_args(command, values: dict) -> list[str]:
-    if isinstance(command, str):
-        args = shlex.split(command)
-    elif isinstance(command, list):
-        args = [str(item) for item in command]
-    else:
-        raise ValueError("AI 封面 command 必须是字符串或参数列表")
-
-    if not args:
-        raise ValueError("AI 封面 command 为空")
-
-    return [arg.format(**values) for arg in args]
-
-
-def _generate_ai_cover_with_command(ai_config: dict, prompt: str, frontmatter: dict) -> str:
-    command = ai_config.get('command')
-    if not command:
-        raise ValueError("provider: command 需要配置 command")
-
-    suffix = ai_config.get('output_suffix') or '.png'
-    prompt_path = None
-    output_path = None
-    keep_output = False
-    try:
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
-            prompt_path = f.name
-            f.write(prompt)
-
-        with tempfile.NamedTemporaryFile(mode='wb', suffix=suffix, delete=False) as f:
-            output_path = f.name
-
-        values = {
-            'prompt_file': prompt_path,
-            'output_file': output_path,
-            'title': frontmatter.get('title', ''),
-            'digest': frontmatter.get('digest', ''),
-        }
-        args = _format_command_args(command, values)
-        result = subprocess.run(
-            args,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=ai_config.get('timeout', 300),
-        )
-        if result.returncode != 0:
-            detail = (result.stderr or result.stdout or '').strip()
-            raise RuntimeError(f"AI 封面 command 执行失败 ({result.returncode}): {_redact_text(detail[:500])}")
-
-        if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
-            raise RuntimeError("AI 封面 command 未生成有效图片文件")
-
-        keep_output = True
-        return output_path
-    finally:
-        safe_unlink(prompt_path)
-        if output_path and not keep_output:
-            safe_unlink(output_path)
-
-
-def _build_codex_cli_prompt(prompt: str, output_path: str, frontmatter: dict) -> str:
-    return f"""请为微信公众号文章生成一张横版封面图，并保存为 PNG 文件。
-
-硬性要求：
-- 必须把最终图片保存到这个绝对路径：{output_path}
-- 如果你没有专门的生图工具，请直接运行 Python/Pillow 创建一张现代、清晰、抽象科技风的 16:9 位图封面。
-- 不要等待用户确认，不要打开交互界面，不要输出 base64。
-- 不要在图片中生成可读文字、Logo、水印或二维码。
-- 保存完成后只用一句话确认文件已写入，不要输出 base64。
-
-文章标题：{frontmatter.get('title', '')}
-文章摘要：{frontmatter.get('digest', '')}
-
-封面生成提示词：
-{prompt}
-"""
-
-
-def _generate_local_cover_image(prompt: str, frontmatter: dict, suffix: str = '.png') -> str:
-    """本地生成一张可上传封面，避免外部生图失败时退回默认封面。"""
-    try:
-        from PIL import Image, ImageDraw, ImageFilter
-    except ImportError as e:
-        raise RuntimeError("本地封面生成需要 Pillow") from e
-
-    width, height = 1536, 864
-    title = str(frontmatter.get('title') or '')
-    digest = str(frontmatter.get('digest') or '')
-    seed_text = f"{title}\n{digest}\n{prompt}"
-    seed = zlib.crc32(seed_text.encode('utf-8'))
-
-    palettes = [
-        ((20, 34, 52), (26, 105, 122), (240, 181, 82), (246, 248, 243)),
-        ((42, 40, 61), (91, 114, 117), (223, 111, 83), (248, 244, 235)),
-        ((18, 51, 59), (88, 128, 97), (232, 191, 109), (247, 246, 237)),
-        ((47, 50, 56), (104, 137, 145), (214, 99, 91), (245, 241, 230)),
-    ]
-    bg_a, bg_b, accent_a, accent_b = palettes[seed % len(palettes)]
-
-    image = Image.new('RGB', (width, height), bg_a)
-    pixels = image.load()
-    for y in range(height):
-        t = y / max(height - 1, 1)
-        for x in range(width):
-            wave = ((x + (seed % 311)) % width) / width
-            mix = min(1, max(0, t * 0.75 + wave * 0.25))
-            pixels[x, y] = tuple(int(bg_a[i] * (1 - mix) + bg_b[i] * mix) for i in range(3))
-
-    overlay = Image.new('RGBA', (width, height), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(overlay)
-    for i in range(10):
-        x = int((seed * (i + 3) % width) - width * 0.15)
-        y = int((seed // (i + 5) % height) - height * 0.15)
-        r = int(width * (0.12 + ((seed >> i) & 7) / 50))
-        color = accent_a if i % 2 == 0 else accent_b
-        alpha = 28 + (seed >> (i % 12)) % 46
-        draw.ellipse((x, y, x + r * 2, y + r * 2), fill=(*color, alpha))
-
-    for i in range(22):
-        x1 = int((seed * (i + 11) % width))
-        y1 = int((seed // (i + 7) % height))
-        x2 = int((x1 + width * (0.18 + (i % 5) * 0.04)) % width)
-        y2 = int((y1 + height * (0.05 + (i % 4) * 0.03)) % height)
-        draw.line((x1, y1, x2, y2), fill=(*accent_b, 38), width=3)
-        draw.ellipse((x1 - 4, y1 - 4, x1 + 4, y1 + 4), fill=(*accent_a, 90))
-
-    image = Image.alpha_composite(image.convert('RGBA'), overlay.filter(ImageFilter.GaussianBlur(radius=1.2)))
-    image = image.convert('RGB')
-
-    with tempfile.NamedTemporaryFile(mode='wb', suffix=suffix, delete=False) as f:
-        image.save(f.name, format='PNG')
-        return f.name
-
-
-def _generate_ai_cover_with_codex_cli(ai_config: dict, prompt: str, frontmatter: dict) -> str:
-    codex_command = ai_config.get('codex_command') or ai_config.get('command') or 'codex'
-    suffix = ai_config.get('output_suffix') or '.png'
-    timeout = ai_config.get('codex_timeout', ai_config.get('timeout', 120))
-    output_path = None
-    temp_dir = None
-    keep_output = False
-    try:
-        temp_dir = tempfile.mkdtemp(prefix='wechat-codex-cover-')
-        output_path = os.path.join(temp_dir, f'cover{suffix}')
-        codex_prompt = _build_codex_cli_prompt(prompt, output_path, frontmatter)
-
-        args = [codex_command, 'exec', '--skip-git-repo-check', '--full-auto', '-C', temp_dir]
-        model = ai_config.get('codex_model')
-        if model:
-            args.extend(['--model', str(model)])
-        profile = ai_config.get('profile')
-        if profile:
-            args.extend(['--profile', str(profile)])
-        for arg in ai_config.get('codex_args') or []:
-            args.append(str(arg))
-        args.append(codex_prompt)
-
-        result = subprocess.run(
-            args,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        if result.returncode != 0:
-            detail = (result.stderr or result.stdout or '').strip()
-            raise RuntimeError(f"Codex CLI 生图失败 ({result.returncode}): {_redact_text(detail[:800])}")
-
-        if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
-            detail = (result.stdout or result.stderr or '').strip()
-            raise RuntimeError(f"Codex CLI 未生成有效图片文件: {_redact_text(detail[:800])}")
-
-        keep_output = True
-        return output_path
-    except subprocess.TimeoutExpired as e:
-        detail = (e.stderr or e.stdout or '')
-        if isinstance(detail, bytes):
-            detail = detail.decode('utf-8', errors='replace')
-        raise RuntimeError(f"Codex CLI 生图超时 ({timeout}s): {_redact_text(str(detail)[:800])}") from e
-    finally:
-        if temp_dir and not keep_output:
-            try:
-                import shutil
-                shutil.rmtree(temp_dir, ignore_errors=True)
-            except Exception:
-                pass
 
 
 def _ai_cover_endpoint(provider: str, ai_config: dict) -> str:
@@ -854,6 +679,28 @@ def _request_ai_cover(provider: str, ai_config: dict, prompt: str) -> dict:
             timeout=ai_config.get('timeout', DEFAULT_HTTP_TIMEOUT),
         )
 
+    if provider == 'doubao':
+        defaults = AI_COVER_DEFAULTS[provider]
+        payload = {
+            'model': model,
+            'prompt': prompt,
+            'size': ai_config.get('size') or defaults['size'],
+            'response_format': ai_config.get('response_format') or defaults['response_format'],
+            'watermark': ai_config.get('watermark', False),
+        }
+        seedream_options = ai_config.get('optimize_prompt_options')
+        if seedream_options:
+            payload['optimize_prompt_options'] = seedream_options
+
+        headers = {'Authorization': f"Bearer {api_key}", 'Content-Type': 'application/json'}
+        return request_json(
+            "POST",
+            _ai_cover_endpoint(provider, ai_config),
+            headers=headers,
+            json=payload,
+            timeout=ai_config.get('timeout', DEFAULT_HTTP_TIMEOUT),
+        )
+
     payload = {
         'model': model,
         'prompt': prompt,
@@ -882,11 +729,6 @@ def generate_ai_cover_image(config: dict, frontmatter: dict, body: str) -> str |
 
     provider = _normalize_ai_cover_provider(ai_config.get('provider') or 'openai')
     prompt = _format_ai_cover_prompt(ai_config, frontmatter, body)
-    if provider == 'command':
-        return _generate_ai_cover_with_command(ai_config, prompt, frontmatter)
-    if provider == 'codex_cli':
-        return _generate_ai_cover_with_codex_cli(ai_config, prompt, frontmatter)
-
     data = _request_ai_cover(provider, ai_config, prompt)
     b64_value, image_url = _extract_generated_image(data)
 
@@ -1056,26 +898,14 @@ def get_ai_cover(config: dict, token: str, frontmatter: dict, body: str = "") ->
     temp_path = None
     try:
         temp_path = generate_ai_cover_image(config, frontmatter, body)
-    except Exception as e:
-        print(f"警告: AI 封面生成失败，尝试本地封面兜底: {_redact_text(str(e))}")
-        if ai_config.get('local_fallback', True):
-            try:
-                prompt = _format_ai_cover_prompt(ai_config, frontmatter, body)
-                temp_path = _generate_local_cover_image(prompt, frontmatter, ai_config.get('output_suffix') or '.png')
-                print("  ✓ 已生成本地兜底封面")
-            except Exception as fallback_error:
-                print(f"警告: 本地封面兜底失败，将退回默认封面: {_redact_text(str(fallback_error))}")
-                return None
-        else:
-            return None
-
-    try:
         if not temp_path:
             return None
         media_id = upload_cover_material(token, temp_path)
         if media_id:
             return media_id
         print("警告: AI 封面上传失败，将退回默认封面")
+    except Exception as e:
+        print(f"警告: AI 封面生成失败，将退回默认封面: {_redact_text(str(e))}")
     finally:
         safe_unlink(temp_path)
 

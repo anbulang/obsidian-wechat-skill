@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 import os
 import socket
-import subprocess
-import sys
 import tempfile
 from unittest.mock import patch
 
@@ -291,7 +289,7 @@ def test_ai_cover_failure_falls_back_to_default_cover():
     try:
         result = wechat.resolve_thumb_media_id(
             {"title": "Title"},
-            {"default_thumb_media_id": "default_media", "ai_cover": {"enabled": True, "local_fallback": False}},
+            {"default_thumb_media_id": "default_media", "ai_cover": {"enabled": True}},
             "token",
             "/tmp",
             "body",
@@ -299,36 +297,6 @@ def test_ai_cover_failure_falls_back_to_default_cover():
         assert result == "default_media"
     finally:
         setattr(wechat, "generate_ai_cover_image", original_generate)
-
-
-def test_ai_cover_failure_uses_local_fallback_before_default_cover():
-    calls = []
-    original_generate = patch_attr("generate_ai_cover_image", lambda config, frontmatter, body: (_ for _ in ()).throw(RuntimeError("boom")))
-    original_upload = patch_attr("upload_cover_material", lambda token, src: calls.append(src) or "local_media")
-    try:
-        result = wechat.resolve_thumb_media_id(
-            {"title": "Title"},
-            {"default_thumb_media_id": "default_media", "ai_cover": {"enabled": True}},
-            "token",
-            "/tmp",
-            "body",
-        )
-        assert result == "local_media"
-        assert len(calls) == 1
-        assert not os.path.exists(calls[0])
-    finally:
-        setattr(wechat, "generate_ai_cover_image", original_generate)
-        setattr(wechat, "upload_cover_material", original_upload)
-
-
-def test_local_cover_generator_creates_png():
-    path = wechat._generate_local_cover_image("prompt", {"title": "Title", "digest": "Digest"})
-    try:
-        assert os.path.exists(path)
-        assert open(path, "rb").read(8).startswith(b"\x89PNG")
-        assert os.path.getsize(path) > 1000
-    finally:
-        os.unlink(path)
 
 
 def test_openai_ai_cover_adapter_writes_base64_image():
@@ -361,6 +329,80 @@ def test_openai_ai_cover_adapter_writes_base64_image():
         if 'path' in locals():
             os.unlink(path)
         wechat.request_json = original_request_json
+
+
+def test_doubao_ai_cover_adapter_writes_base64_image():
+    payloads = []
+    original_request_json = wechat.request_json
+    try:
+        wechat.request_json = lambda method, url, **kwargs: payloads.append((method, url, kwargs)) or {
+            "code": 0,
+            "message": "success",
+            "data": ["iVBORw0KGgo="],
+        }
+        path = wechat.generate_ai_cover_image(
+            {
+                "ai_cover": {
+                    "enabled": True,
+                    "provider": "doubao",
+                    "api_key": "doubao-key",
+                    "base_url": "https://operator.las.cn-beijing.volces.com",
+                    "model": "doubao-seedream-4-5-251128",
+                    "size": "1536x864",
+                    "response_format": "b64_json",
+                    "watermark": False,
+                }
+            },
+            {"title": "标题", "digest": "摘要"},
+            "# 正文",
+        )
+        assert os.path.exists(path)
+        assert open(path, "rb").read().startswith(b"\x89PNG")
+        assert payloads[0][0] == "POST"
+        assert payloads[0][1] == "https://operator.las.cn-beijing.volces.com/api/v1/online/images/generations"
+        assert payloads[0][2]["headers"]["Authorization"] == "Bearer doubao-key"
+        assert payloads[0][2]["json"] == {
+            "model": "doubao-seedream-4-5-251128",
+            "prompt": payloads[0][2]["json"]["prompt"],
+            "size": "1536x864",
+            "response_format": "b64_json",
+            "watermark": False,
+        }
+    finally:
+        if 'path' in locals():
+            os.unlink(path)
+        wechat.request_json = original_request_json
+
+
+def test_doubao_ai_cover_adapter_downloads_url_response():
+    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
+        f.write(b"jpg")
+        temp_path = f.name
+
+    original_request_json = wechat.request_json
+    original_download = patch_attr("download_image_to_temp", lambda url: temp_path)
+    try:
+        wechat.request_json = lambda method, url, **kwargs: {"data": ["https://example.com/cover.jpg"]}
+        with patch.object(socket, "getaddrinfo", return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('93.184.216.34', 443))]):
+            path = wechat.generate_ai_cover_image(
+                {
+                    "ai_cover": {
+                        "enabled": True,
+                        "provider": "doubao",
+                        "api_key": "doubao-key",
+                        "model": "doubao-seedream-4-5-251128",
+                        "response_format": "url",
+                    }
+                },
+                {"title": "Title"},
+                "body",
+            )
+        assert path == temp_path
+    finally:
+        wechat.request_json = original_request_json
+        setattr(wechat, "download_image_to_temp", original_download)
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
 
 
 def test_gemini_ai_cover_adapter_writes_inline_data_image():
@@ -445,142 +487,6 @@ def test_gemini_endpoint_expands_model_placeholder():
     assert endpoint == "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent"
 
 
-def test_command_ai_cover_provider_writes_output_file():
-    script = "import pathlib, sys; pathlib.Path(sys.argv[2]).write_bytes(b'\\x89PNG\\r\\n\\x1a\\ncmd')"
-    path = wechat.generate_ai_cover_image(
-        {
-            "ai_cover": {
-                "enabled": True,
-                "provider": "command",
-                "command": [sys.executable, "-c", script, "{prompt_file}", "{output_file}"],
-                "output_suffix": ".png",
-            }
-        },
-        {"title": "Title", "digest": "Digest"},
-        "body",
-    )
-    try:
-        assert os.path.exists(path)
-        assert open(path, "rb").read().startswith(b"\x89PNG")
-    finally:
-        os.unlink(path)
-
-
-def test_command_ai_cover_provider_reports_empty_output():
-    try:
-        wechat.generate_ai_cover_image(
-            {
-                "ai_cover": {
-                    "enabled": True,
-                    "provider": "command",
-                    "command": [sys.executable, "-c", "pass", "{prompt_file}", "{output_file}"],
-                }
-            },
-            {"title": "Title"},
-            "body",
-        )
-    except RuntimeError as e:
-        assert "未生成有效图片文件" in str(e)
-    else:
-        raise AssertionError("empty command output should fail")
-
-
-def test_codex_cli_ai_cover_provider_invokes_codex_exec():
-    calls = []
-    original_run = subprocess.run
-
-    def fake_run(args, **kwargs):
-        calls.append((args, kwargs))
-        output_path = args[-1].split("必须把最终图片保存到这个绝对路径：", 1)[1].splitlines()[0].strip()
-        with open(output_path, "wb") as f:
-            f.write(b"\x89PNG\r\n\x1a\ncodex")
-        return subprocess.CompletedProcess(args, 0, stdout="done", stderr="")
-
-    subprocess.run = fake_run
-    try:
-        path = wechat.generate_ai_cover_image(
-            {
-                "ai_cover": {
-                    "enabled": True,
-                    "provider": "codex_cli",
-                    "codex_command": "codex",
-                    "model": "gemini-3.1-flash-image-preview",
-                    "codex_model": "gpt-5.5",
-                    "codex_args": ["--ephemeral"],
-                }
-            },
-            {"title": "Title", "digest": "Digest"},
-            "body",
-        )
-        assert os.path.exists(path)
-        assert open(path, "rb").read().startswith(b"\x89PNG")
-        args, kwargs = calls[0]
-        assert args[:2] == ["codex", "exec"]
-        assert "--skip-git-repo-check" in args
-        assert "--full-auto" in args
-        assert "--model" in args
-        assert "gpt-5.5" in args
-        assert "gemini-3.1-flash-image-preview" not in args
-        assert "--ephemeral" in args
-        assert kwargs["timeout"] == 120
-    finally:
-        subprocess.run = original_run
-        if 'path' in locals() and os.path.exists(path):
-            os.unlink(path)
-
-
-def test_codex_cli_ai_cover_provider_reports_missing_file():
-    original_run = subprocess.run
-    subprocess.run = lambda args, **kwargs: subprocess.CompletedProcess(args, 0, stdout="no file", stderr="")
-    try:
-        wechat.generate_ai_cover_image(
-            {
-                "ai_cover": {
-                    "enabled": True,
-                    "provider": "codex_cli",
-                }
-            },
-            {"title": "Title"},
-            "body",
-        )
-    except RuntimeError as e:
-        assert "Codex CLI 未生成有效图片文件" in str(e)
-    else:
-        raise AssertionError("missing Codex CLI output should fail")
-    finally:
-        subprocess.run = original_run
-
-
-def test_codex_cli_ai_cover_provider_uses_configured_timeout():
-    calls = []
-    original_run = subprocess.run
-
-    def fake_run(args, **kwargs):
-        calls.append(kwargs["timeout"])
-        raise subprocess.TimeoutExpired(args, kwargs["timeout"], output="still running")
-
-    subprocess.run = fake_run
-    try:
-        wechat.generate_ai_cover_image(
-            {
-                "ai_cover": {
-                    "enabled": True,
-                    "provider": "codex_cli",
-                    "codex_timeout": 3,
-                }
-            },
-            {"title": "Title"},
-            "body",
-        )
-    except RuntimeError as e:
-        assert "Codex CLI 生图超时 (3s)" in str(e)
-        assert calls == [3]
-    else:
-        raise AssertionError("Codex CLI timeout should fail fast")
-    finally:
-        subprocess.run = original_run
-
-
 def main():
     test_thumb_media_id_has_highest_priority()
     test_banner_local_path_is_resolved_from_article_dir()
@@ -596,17 +502,12 @@ def main():
     test_body_first_image_is_not_used_as_cover()
     test_ai_cover_is_used_before_default_cover()
     test_ai_cover_failure_falls_back_to_default_cover()
-    test_ai_cover_failure_uses_local_fallback_before_default_cover()
-    test_local_cover_generator_creates_png()
     test_openai_ai_cover_adapter_writes_base64_image()
+    test_doubao_ai_cover_adapter_writes_base64_image()
+    test_doubao_ai_cover_adapter_downloads_url_response()
     test_gemini_ai_cover_adapter_writes_inline_data_image()
     test_nanobanana_provider_alias_uses_gemini_adapter()
     test_gemini_endpoint_expands_model_placeholder()
-    test_command_ai_cover_provider_writes_output_file()
-    test_command_ai_cover_provider_reports_empty_output()
-    test_codex_cli_ai_cover_provider_invokes_codex_exec()
-    test_codex_cli_ai_cover_provider_reports_missing_file()
-    test_codex_cli_ai_cover_provider_uses_configured_timeout()
     print("✅ 封面处理测试通过")
 
 
