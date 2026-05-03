@@ -552,6 +552,45 @@ def test_gemini_endpoint_expands_model_placeholder():
     assert endpoint == "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent"
 
 
+def test_main_resolves_cover_from_raw_markdown_body():
+    raw_body = "# Title\n\n![[image.png]]\n\n正文"
+    content = f"---\ntitle: Title\n---\n{raw_body}"
+    captured = {}
+
+    with tempfile.NamedTemporaryFile("w", suffix=".md", encoding="utf-8", delete=False) as f:
+        f.write(content)
+        article_path = f.name
+
+    originals = {
+        "load_config": wechat.load_config,
+        "get_access_token": wechat.get_access_token,
+        "process_content_workflow": wechat.process_content_workflow,
+        "md_to_html": wechat.md_to_html,
+        "resolve_thumb_media_id": wechat.resolve_thumb_media_id,
+        "publish_draft": wechat.publish_draft,
+    }
+
+    try:
+        wechat.load_config = lambda: {"default_author": "author", "default_thumb_media_id": "default"}
+        wechat.get_access_token = lambda config: "token"
+        wechat.process_content_workflow = lambda raw, token, article_dir: ({"title": "Title"}, '<img src="wechat-cdn">')
+        wechat.md_to_html = lambda body: "<section>html</section>"
+
+        def capture_cover_body(frontmatter, config, token, article_dir, body=""):
+            captured["body"] = body
+            return "thumb"
+
+        wechat.resolve_thumb_media_id = capture_cover_body
+        wechat.publish_draft = lambda token, article_data, config=None: {"media_id": "draft"}
+
+        wechat.main(article_path)
+        assert captured["body"] == raw_body
+    finally:
+        for name, original in originals.items():
+            setattr(wechat, name, original)
+        os.unlink(article_path)
+
+
 def main():
     test_thumb_media_id_has_highest_priority()
     test_banner_local_path_is_resolved_from_article_dir()
@@ -575,6 +614,7 @@ def main():
     test_gemini_ai_cover_adapter_writes_inline_data_image()
     test_nanobanana_provider_alias_uses_gemini_adapter()
     test_gemini_endpoint_expands_model_placeholder()
+    test_main_resolves_cover_from_raw_markdown_body()
     print("✅ 封面处理测试通过")
 
 

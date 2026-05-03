@@ -24,6 +24,7 @@ import markdown
 CONFIG_FILE = "config/wechat-credentials.local.md"
 WECHAT_API_BASE = "https://api.weixin.qq.com/cgi-bin"
 DEFAULT_HTTP_TIMEOUT = 30
+DEFAULT_AI_COVER_TIMEOUT = 90
 TOKEN_REFRESH_MARGIN_SECONDS = 300
 TOKEN_INVALID_ERRCODES = {40001, 42001}
 SENSITIVE_KEYS = {"secret", "access_token", "token", "appid"}
@@ -642,6 +643,14 @@ def _ai_cover_cache_enabled(provider: str, ai_config: dict) -> bool:
     return provider == 'doubao' and ai_config.get('cache_enabled', True)
 
 
+def _ai_cover_timeout(ai_config: dict) -> int:
+    try:
+        timeout = int(ai_config.get('timeout', DEFAULT_AI_COVER_TIMEOUT))
+    except (TypeError, ValueError):
+        return DEFAULT_AI_COVER_TIMEOUT
+    return max(1, timeout)
+
+
 def _ai_cover_cache_path(article_dir: str, provider: str, ai_config: dict, frontmatter: dict, prompt: str) -> str:
     cache_payload = {
         'provider': provider,
@@ -728,7 +737,7 @@ def _request_ai_cover(provider: str, ai_config: dict, prompt: str) -> dict:
             _ai_cover_endpoint(provider, ai_config),
             headers=headers,
             json=payload,
-            timeout=ai_config.get('timeout', DEFAULT_HTTP_TIMEOUT),
+            timeout=_ai_cover_timeout(ai_config),
         )
 
     if provider == 'doubao':
@@ -768,7 +777,7 @@ def _request_ai_cover(provider: str, ai_config: dict, prompt: str) -> dict:
             _ai_cover_endpoint(provider, ai_config),
             headers=headers,
             json=payload,
-            timeout=ai_config.get('timeout', DEFAULT_HTTP_TIMEOUT),
+            timeout=_ai_cover_timeout(ai_config),
         )
 
     payload = {
@@ -787,7 +796,7 @@ def _request_ai_cover(provider: str, ai_config: dict, prompt: str) -> dict:
         _ai_cover_endpoint(provider, ai_config),
         headers=headers,
         json=payload,
-        timeout=ai_config.get('timeout', DEFAULT_HTTP_TIMEOUT),
+        timeout=_ai_cover_timeout(ai_config),
     )
 
 
@@ -1474,17 +1483,22 @@ def _compress_html_preserve_pre(html: str) -> str:
 
 # ================= 工作流 =================
 
-def process_content_workflow(content: str, token: str, article_dir: str | None = None) -> tuple[dict, str]:
-    """完整的 Markdown 处理工作流"""
+def parse_frontmatter_content(content: str) -> tuple[dict, str]:
     frontmatter = {}
     body = content
+    match = re.match(r'^---\n(.*?)\n---\n', content, re.DOTALL)
+    if match:
+        frontmatter = yaml.safe_load(match.group(1)) or {}
+        body = content[match.end():]
+    return frontmatter, body
+
+
+def process_content_workflow(content: str, token: str, article_dir: str | None = None) -> tuple[dict, str]:
+    """完整的 Markdown 处理工作流"""
     article_dir = article_dir or os.getcwd()
     image_failures = []
 
-    match = re.match(r'^---\n(.*?)\n---\n', content, re.DOTALL)
-    if match:
-        frontmatter = yaml.safe_load(match.group(1))
-        body = content[match.end():]
+    frontmatter, body = parse_frontmatter_content(content)
 
     body = preprocess_markdown(body)
     body = process_mermaid(body)
@@ -1572,6 +1586,8 @@ def main(file_path: str) -> None:
     with open(article_path, 'r') as f:
         raw_content = f.read()
 
+    _, raw_body_for_cover = parse_frontmatter_content(raw_content)
+
     print("正在处理 Markdown 内容...")
     try:
         frontmatter, processed_body = process_content_workflow(raw_content, token, article_dir)
@@ -1587,7 +1603,7 @@ def main(file_path: str) -> None:
             config,
             token,
             article_dir,
-            processed_body,
+            raw_body_for_cover,
         )
     except RuntimeError as e:
         print(e)
