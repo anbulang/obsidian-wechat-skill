@@ -53,12 +53,11 @@ AI_COVER_DEFAULTS = {
         'aspect_ratio': '16:9',
     },
     'doubao': {
-        'base_url': 'https://operator.las.cn-beijing.volces.com',
-        'endpoint': '/api/v1/images/generations',
-        'model': 'doubao-seedream-4.5',
-        'version': 251128,
-        'size': '1536x864',
-        'response_format': 'b64_json',
+        'base_url': 'https://ark.cn-beijing.volces.com/api/v3',
+        'endpoint': '/images/generations',
+        'model': 'doubao-seedream-5-0-260128',
+        'size': '2K',
+        'output_format': 'png',
     },
 }
 AI_COVER_PROVIDER_ALIASES = {
@@ -399,7 +398,15 @@ def request_response(method: str, url: str, *, timeout: int = DEFAULT_HTTP_TIMEO
         response.raise_for_status()
         return response
     except requests.RequestException as e:
-        raise WechatRequestError(f"HTTP 请求失败: {_redact_text(str(e))}") from e
+        response = getattr(e, 'response', None)
+        detail = ""
+        if response is not None:
+            try:
+                detail = response.text[:1000]
+            except Exception:
+                detail = ""
+        suffix = f"; 响应: {_redact_text(detail)}" if detail else ""
+        raise WechatRequestError(f"HTTP 请求失败: {_redact_text(str(e))}{suffix}") from e
 
 
 def request_json(method: str, url: str, *, timeout: int = DEFAULT_HTTP_TIMEOUT, **kwargs) -> dict:
@@ -684,15 +691,29 @@ def _request_ai_cover(provider: str, ai_config: dict, prompt: str) -> dict:
         defaults = AI_COVER_DEFAULTS[provider]
         payload = {
             'model': model,
-            'version': ai_config.get('version', defaults['version']),
             'prompt': prompt,
             'size': ai_config.get('size') or defaults['size'],
-            'response_format': ai_config.get('response_format') or defaults['response_format'],
+            'output_format': ai_config.get('output_format') or defaults['output_format'],
             'watermark': ai_config.get('watermark', False),
         }
+        response_format = ai_config.get('response_format')
+        if response_format:
+            payload['response_format'] = response_format
         stream = ai_config.get('stream')
         if stream is not None:
             payload['stream'] = bool(stream)
+        image = ai_config.get('image')
+        if image:
+            payload['image'] = image
+        sequential = ai_config.get('sequential_image_generation')
+        if sequential:
+            payload['sequential_image_generation'] = sequential
+        sequential_options = ai_config.get('sequential_image_generation_options')
+        if sequential_options:
+            payload['sequential_image_generation_options'] = sequential_options
+        tools = ai_config.get('tools')
+        if tools:
+            payload['tools'] = tools
         seedream_options = ai_config.get('optimize_prompt_options')
         if seedream_options:
             payload['optimize_prompt_options'] = seedream_options

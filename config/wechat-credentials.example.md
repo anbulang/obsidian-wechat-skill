@@ -10,12 +10,12 @@ ai_cover:
   enabled: false
   provider: "doubao" # doubao | openai | gemini
   api_key: ""
-  base_url: "https://operator.las.cn-beijing.volces.com"
-  endpoint: "/api/v1/images/generations"
-  model: "doubao-seedream-4.5"
-  version: 251128
-  size: "1536x864"
-  response_format: "b64_json"
+  base_url: "https://ark.cn-beijing.volces.com/api/v3"
+  endpoint: "/images/generations"
+  model: "doubao-seedream-5-0-260128"
+  size: "2K"
+  output_format: "png"
+  response_format: "" # 可选：url | b64_json；留空使用方舟默认
   watermark: false
   aspect_ratio: "16:9" # Gemini 使用
   image_size: "" # Gemini 可选，如 2K

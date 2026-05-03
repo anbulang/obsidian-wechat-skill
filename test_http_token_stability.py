@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import time
+import requests
 
 import publish_to_wechat as wechat
 
@@ -74,6 +75,34 @@ def test_request_json_passes_timeout_to_requests():
         wechat.requests.request = original
 
 
+def test_request_error_includes_redacted_response_body():
+    class FakeResponse:
+        text = '{"error":{"code":"ModelNotOpen","message":"secret=should-hide token=abc"}}'
+
+        def raise_for_status(self):
+            raise requests.HTTPError("404 Client Error: Not Found", response=self)
+
+    def fake_request(method, url, **kwargs):
+        return FakeResponse()
+
+    original = wechat.requests.request
+    wechat.requests.request = fake_request
+    try:
+        try:
+            wechat.request_json("POST", "https://example.test/api")
+        except wechat.WechatRequestError as e:
+            message = str(e)
+            assert "ModelNotOpen" in message
+            assert "secret=<redacted>" in message
+            assert "token=<redacted>" in message
+            assert "should-hide" not in message
+            assert "abc" not in message
+        else:
+            raise AssertionError("HTTP error should raise")
+    finally:
+        wechat.requests.request = original
+
+
 def test_draft_add_refreshes_token_once_on_invalid_token():
     config = {
         "appid": "appid",
@@ -110,6 +139,7 @@ def main():
     test_unexpired_token_is_reused()
     test_expired_token_is_refreshed()
     test_request_json_passes_timeout_to_requests()
+    test_request_error_includes_redacted_response_body()
     test_draft_add_refreshes_token_once_on_invalid_token()
     print("✅ HTTP/token 稳定性测试通过")
 
