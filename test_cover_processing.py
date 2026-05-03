@@ -347,7 +347,8 @@ def test_doubao_ai_cover_adapter_writes_base64_image():
                     "provider": "doubao",
                     "api_key": "doubao-key",
                     "base_url": "https://operator.las.cn-beijing.volces.com",
-                    "model": "doubao-seedream-4-5-251128",
+                    "model": "doubao-seedream-4.5",
+                    "version": 251128,
                     "size": "1536x864",
                     "response_format": "b64_json",
                     "watermark": False,
@@ -359,10 +360,11 @@ def test_doubao_ai_cover_adapter_writes_base64_image():
         assert os.path.exists(path)
         assert open(path, "rb").read().startswith(b"\x89PNG")
         assert payloads[0][0] == "POST"
-        assert payloads[0][1] == "https://operator.las.cn-beijing.volces.com/api/v1/online/images/generations"
+        assert payloads[0][1] == "https://operator.las.cn-beijing.volces.com/api/v1/images/generations"
         assert payloads[0][2]["headers"]["Authorization"] == "Bearer doubao-key"
         assert payloads[0][2]["json"] == {
-            "model": "doubao-seedream-4-5-251128",
+            "model": "doubao-seedream-4.5",
+            "version": 251128,
             "prompt": payloads[0][2]["json"]["prompt"],
             "size": "1536x864",
             "response_format": "b64_json",
@@ -390,7 +392,7 @@ def test_doubao_ai_cover_adapter_downloads_url_response():
                         "enabled": True,
                         "provider": "doubao",
                         "api_key": "doubao-key",
-                        "model": "doubao-seedream-4-5-251128",
+                        "model": "doubao-seedream-4.5",
                         "response_format": "url",
                     }
                 },

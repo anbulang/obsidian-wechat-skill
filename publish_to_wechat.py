@@ -54,8 +54,9 @@ AI_COVER_DEFAULTS = {
     },
     'doubao': {
         'base_url': 'https://operator.las.cn-beijing.volces.com',
-        'endpoint': '/api/v1/online/images/generations',
-        'model': 'doubao-seedream-4-5-251128',
+        'endpoint': '/api/v1/images/generations',
+        'model': 'doubao-seedream-4.5',
+        'version': 251128,
         'size': '1536x864',
         'response_format': 'b64_json',
     },
@@ -683,11 +684,15 @@ def _request_ai_cover(provider: str, ai_config: dict, prompt: str) -> dict:
         defaults = AI_COVER_DEFAULTS[provider]
         payload = {
             'model': model,
+            'version': ai_config.get('version', defaults['version']),
             'prompt': prompt,
             'size': ai_config.get('size') or defaults['size'],
             'response_format': ai_config.get('response_format') or defaults['response_format'],
             'watermark': ai_config.get('watermark', False),
         }
+        stream = ai_config.get('stream')
+        if stream is not None:
+            payload['stream'] = bool(stream)
         seedream_options = ai_config.get('optimize_prompt_options')
         if seedream_options:
             payload['optimize_prompt_options'] = seedream_options

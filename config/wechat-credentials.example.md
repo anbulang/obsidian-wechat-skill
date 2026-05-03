@@ -11,8 +11,9 @@ ai_cover:
   provider: "doubao" # doubao | openai | gemini
   api_key: ""
   base_url: "https://operator.las.cn-beijing.volces.com"
-  endpoint: "/api/v1/online/images/generations"
-  model: "doubao-seedream-4-5-251128"
+  endpoint: "/api/v1/images/generations"
+  model: "doubao-seedream-4.5"
+  version: 251128
   size: "1536x864"
   response_format: "b64_json"
   watermark: false
