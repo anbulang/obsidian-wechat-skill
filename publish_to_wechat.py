@@ -8,6 +8,7 @@ import zlib
 import html as html_lib
 import ipaddress
 import mimetypes
+import shutil
 import time
 from datetime import datetime
 import socket
@@ -35,6 +36,7 @@ WECHAT_IMAGE_TYPES = {
     '.gif': 'image/gif',
 }
 COVER_SOURCE_FIELDS = ('banner', 'banner_path', 'cover', 'cover_image', 'thumbnail', 'image', 'featured_image')
+AI_COVER_CACHE_DIRNAME = '.wechat-cover-cache'
 AI_COVER_DEFAULT_PROMPT = """根据下面的微信公众号文章内容生成一张横版封面图。
 要求：画面适合微信公众号封面，现代、清晰、有主题感，不要生成可读文字、Logo、水印或二维码。
 
@@ -625,6 +627,48 @@ def _write_base64_image_to_temp(b64_value: str, suffix: str = '.png') -> str:
         return f.name
 
 
+def _copy_image_to_temp(image_path: str, suffix: str = '.png') -> str:
+    with tempfile.NamedTemporaryFile(mode='wb', suffix=suffix, delete=False) as f:
+        temp_path = f.name
+    try:
+        shutil.copyfile(image_path, temp_path)
+        return temp_path
+    except Exception:
+        safe_unlink(temp_path)
+        raise
+
+
+def _ai_cover_cache_enabled(provider: str, ai_config: dict) -> bool:
+    return provider == 'doubao' and ai_config.get('cache_enabled', True)
+
+
+def _ai_cover_cache_path(article_dir: str, provider: str, ai_config: dict, frontmatter: dict, prompt: str) -> str:
+    cache_payload = {
+        'provider': provider,
+        'model': ai_config.get('model') or AI_COVER_DEFAULTS.get(provider, {}).get('model'),
+        'size': ai_config.get('size') or AI_COVER_DEFAULTS.get(provider, {}).get('size'),
+        'output_format': ai_config.get('output_format') or AI_COVER_DEFAULTS.get(provider, {}).get('output_format'),
+        'response_format': ai_config.get('response_format') or '',
+        'watermark': ai_config.get('watermark', False),
+        'title': frontmatter.get('title', ''),
+        'digest': frontmatter.get('digest', ''),
+        'prompt': prompt,
+    }
+    key = zlib.crc32(json.dumps(cache_payload, ensure_ascii=False, sort_keys=True).encode('utf-8'))
+    cache_dir = os.path.join(os.path.realpath(article_dir), AI_COVER_CACHE_DIRNAME)
+    return os.path.join(cache_dir, f'{key:08x}.png')
+
+
+def _store_ai_cover_cache(source_path: str, cache_path: str) -> None:
+    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    temp_cache_path = f"{cache_path}.tmp"
+    try:
+        shutil.copyfile(source_path, temp_cache_path)
+        os.replace(temp_cache_path, cache_path)
+    finally:
+        safe_unlink(temp_cache_path)
+
+
 def _ai_cover_endpoint(provider: str, ai_config: dict) -> str:
     defaults = AI_COVER_DEFAULTS[provider]
     base_url = (ai_config.get('base_url') or defaults['base_url']).rstrip('/')
@@ -747,7 +791,7 @@ def _request_ai_cover(provider: str, ai_config: dict, prompt: str) -> dict:
     )
 
 
-def generate_ai_cover_image(config: dict, frontmatter: dict, body: str) -> str | None:
+def generate_ai_cover_image(config: dict, frontmatter: dict, body: str, article_dir: str | None = None) -> str | None:
     """生成 AI 封面图片到临时文件，返回本地路径；失败时抛错给调用方降级处理。"""
     ai_config = config.get('ai_cover') or {}
     if not ai_config.get('enabled', False):
@@ -755,22 +799,35 @@ def generate_ai_cover_image(config: dict, frontmatter: dict, body: str) -> str |
 
     provider = _normalize_ai_cover_provider(ai_config.get('provider') or 'openai')
     prompt = _format_ai_cover_prompt(ai_config, frontmatter, body)
+    cache_path = None
+    if article_dir and _ai_cover_cache_enabled(provider, ai_config):
+        cache_path = _ai_cover_cache_path(article_dir, provider, ai_config, frontmatter, prompt)
+        if os.path.exists(cache_path) and os.path.getsize(cache_path) > 0:
+            print(f"  ✓ 使用已缓存的豆包封面: {cache_path}")
+            return _copy_image_to_temp(cache_path, ai_config.get('output_suffix') or '.png')
+
     data = _request_ai_cover(provider, ai_config, prompt)
     b64_value, image_url = _extract_generated_image(data)
 
+    result_path = None
     if b64_value:
-        return _write_base64_image_to_temp(b64_value)
-
-    if image_url:
+        result_path = _write_base64_image_to_temp(b64_value)
+    elif image_url:
         safe_image_url, error = _validate_remote_image_url(image_url)
         if error:
             raise ValueError(f"AI 封面返回了不安全的图片 URL: {error}")
         temp_path = download_image_to_temp(safe_image_url)
         if not temp_path:
             raise RuntimeError("AI 封面图片下载失败")
-        return temp_path
+        result_path = temp_path
+    else:
+        raise RuntimeError(f"AI 封面响应中未找到图片: {_safe_error_detail(data)}")
 
-    raise RuntimeError(f"AI 封面响应中未找到图片: {_safe_error_detail(data)}")
+    if cache_path:
+        _store_ai_cover_cache(result_path, cache_path)
+        print(f"  ✓ 豆包封面已缓存: {cache_path}")
+
+    return result_path
 
 
 def download_image_to_temp(image_url: str, max_bytes: int = MAX_REMOTE_IMAGE_BYTES) -> str | None:
@@ -904,7 +961,7 @@ def resolve_thumb_media_id(frontmatter: dict, config: dict, token: str, article_
                 continue
             return upload_explicit_cover(token, cover_source, article_dir, field)
 
-    ai_cover = get_ai_cover(config, token, frontmatter, body)
+    ai_cover = get_ai_cover(config, token, frontmatter, body, article_dir)
     if ai_cover:
         return ai_cover
 
@@ -914,7 +971,7 @@ def resolve_thumb_media_id(frontmatter: dict, config: dict, token: str, article_
     return default_cover
 
 
-def get_ai_cover(config: dict, token: str, frontmatter: dict, body: str = "") -> str | None:
+def get_ai_cover(config: dict, token: str, frontmatter: dict, body: str = "", article_dir: str | None = None) -> str | None:
     """生成并上传 AI 封面；失败时按配置策略退回默认封面。"""
     ai_config = config.get('ai_cover') or {}
     if not ai_config.get('enabled', False):
@@ -923,7 +980,7 @@ def get_ai_cover(config: dict, token: str, frontmatter: dict, body: str = "") ->
     print("\n🎨 正在生成 AI 封面图片...")
     temp_path = None
     try:
-        temp_path = generate_ai_cover_image(config, frontmatter, body)
+        temp_path = generate_ai_cover_image(config, frontmatter, body, article_dir)
         if not temp_path:
             return None
         media_id = upload_cover_material(token, temp_path)

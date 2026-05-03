@@ -95,7 +95,7 @@ def test_legacy_unsplash_cover_is_skipped_when_ai_cover_enabled():
         temp_path = f.name
 
     calls = []
-    original_generate = patch_attr("generate_ai_cover_image", lambda config, frontmatter, body: temp_path)
+    original_generate = patch_attr("generate_ai_cover_image", lambda config, frontmatter, body, article_dir=None: temp_path)
     original_upload = patch_attr("upload_cover_material", lambda token, src: calls.append(src) or "ai_media")
     try:
         result = wechat.resolve_thumb_media_id(
@@ -264,7 +264,7 @@ def test_ai_cover_is_used_before_default_cover():
         temp_path = f.name
 
     calls = []
-    original_generate = patch_attr("generate_ai_cover_image", lambda config, frontmatter, body: temp_path)
+    original_generate = patch_attr("generate_ai_cover_image", lambda config, frontmatter, body, article_dir=None: temp_path)
     original_upload = patch_attr("upload_cover_material", lambda token, src: calls.append(src) or "ai_media")
     try:
         result = wechat.resolve_thumb_media_id(
@@ -285,7 +285,7 @@ def test_ai_cover_is_used_before_default_cover():
 
 
 def test_ai_cover_failure_falls_back_to_default_cover():
-    original_generate = patch_attr("generate_ai_cover_image", lambda config, frontmatter, body: (_ for _ in ()).throw(RuntimeError("boom")))
+    original_generate = patch_attr("generate_ai_cover_image", lambda config, frontmatter, body, article_dir=None: (_ for _ in ()).throw(RuntimeError("boom")))
     try:
         result = wechat.resolve_thumb_media_id(
             {"title": "Title"},
@@ -407,6 +407,69 @@ def test_doubao_ai_cover_adapter_downloads_url_response():
             os.unlink(temp_path)
 
 
+def test_doubao_cover_is_cached_by_article_content():
+    with tempfile.TemporaryDirectory() as tmp:
+        calls = []
+        original_request_json = wechat.request_json
+        try:
+            wechat.request_json = lambda method, url, **kwargs: calls.append(kwargs["json"]["prompt"]) or {
+                "data": ["iVBORw0KGgo="],
+            }
+            config = {
+                "ai_cover": {
+                    "enabled": True,
+                    "provider": "doubao",
+                    "api_key": "doubao-key",
+                    "model": "doubao-seedream-5-0-260128",
+                    "response_format": "b64_json",
+                }
+            }
+            first = wechat.generate_ai_cover_image(config, {"title": "Title"}, "body", tmp)
+            second = wechat.generate_ai_cover_image(config, {"title": "Title"}, "body", tmp)
+            try:
+                assert os.path.exists(first)
+                assert os.path.exists(second)
+                assert open(first, "rb").read() == open(second, "rb").read()
+                assert len(calls) == 1
+                cache_dir = os.path.join(tmp, wechat.AI_COVER_CACHE_DIRNAME)
+                assert len(os.listdir(cache_dir)) == 1
+            finally:
+                os.unlink(first)
+                os.unlink(second)
+        finally:
+            wechat.request_json = original_request_json
+
+
+def test_doubao_cover_cache_misses_when_article_content_changes():
+    with tempfile.TemporaryDirectory() as tmp:
+        calls = []
+        original_request_json = wechat.request_json
+        try:
+            wechat.request_json = lambda method, url, **kwargs: calls.append(kwargs["json"]["prompt"]) or {
+                "data": ["iVBORw0KGgo="],
+            }
+            config = {
+                "ai_cover": {
+                    "enabled": True,
+                    "provider": "doubao",
+                    "api_key": "doubao-key",
+                    "model": "doubao-seedream-5-0-260128",
+                    "response_format": "b64_json",
+                }
+            }
+            first = wechat.generate_ai_cover_image(config, {"title": "Title"}, "body v1", tmp)
+            second = wechat.generate_ai_cover_image(config, {"title": "Title"}, "body v2", tmp)
+            try:
+                assert len(calls) == 2
+                cache_dir = os.path.join(tmp, wechat.AI_COVER_CACHE_DIRNAME)
+                assert len(os.listdir(cache_dir)) == 2
+            finally:
+                os.unlink(first)
+                os.unlink(second)
+        finally:
+            wechat.request_json = original_request_json
+
+
 def test_gemini_ai_cover_adapter_writes_inline_data_image():
     original_request_json = wechat.request_json
     payloads = []
@@ -507,6 +570,8 @@ def main():
     test_openai_ai_cover_adapter_writes_base64_image()
     test_doubao_ai_cover_adapter_writes_base64_image()
     test_doubao_ai_cover_adapter_downloads_url_response()
+    test_doubao_cover_is_cached_by_article_content()
+    test_doubao_cover_cache_misses_when_article_content_changes()
     test_gemini_ai_cover_adapter_writes_inline_data_image()
     test_nanobanana_provider_alias_uses_gemini_adapter()
     test_gemini_endpoint_expands_model_placeholder()

@@ -17,6 +17,7 @@ ai_cover:
   output_format: "png"
   response_format: "" # 可选：url | b64_json；留空使用方舟默认
   watermark: false
+  cache_enabled: true # 豆包封面按文章内容缓存，避免同一篇重复生图
   aspect_ratio: "16:9" # Gemini 使用
   image_size: "" # Gemini 可选，如 2K
   output_suffix: ".png"
