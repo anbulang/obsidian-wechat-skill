@@ -1,25 +1,25 @@
-# Obsidian WeChat Publisher
+# Obsidian 微信公众号发布器
 
-把 Obsidian Flavored Markdown 转成微信公众号草稿箱可用的富文本 HTML，并自动处理图片、视频、Mermaid、Callout、代码高亮、封面和发布 API。
+把 Obsidian 风格 Markdown 转成微信公众号草稿箱可用的富文本 HTML，并自动处理图片、视频、Mermaid 图表、Callout、代码高亮、封面和发布接口。
 
-这是一个可直接安装的 Agent Skill：既可以在命令行里用 `./publish.sh` 发布文章，也可以让 Claude Code、Codex 等 agent 在需要“微信公众号排版/发布”时自动调用。
+这是一个可直接安装的智能体技能：既可以在命令行里用 `./publish.sh` 发布文章，也可以让 Claude Code、Codex 等智能体在需要“微信公众号排版/发布”时自动调用。
 
-## Highlights
+## 亮点
 
-- **Obsidian-first**: 支持 `![[image.png]]`、`![[video.mp4|标题]]`、Callout、Admonition、Frontmatter。
-- **WeChat-ready HTML**: 链接转脚注，样式内联，避免微信编辑器过滤常见 CSS/JS。
-- **Media pipeline**: 本地/远程图片上传到微信 CDN，本地 MP4 上传为永久视频素材后在正文中引用。
-- **Mermaid rendering**: Mermaid 图表转图片后上传，草稿中无需 JavaScript。
-- **Cover handling**: 支持 `thumb_media_id`、本地/远程封面、默认封面和可选 AI 自动封面。
-- **Style themes**: 内置 `classic` 和 `deepblue`，可通过 Frontmatter 或 CLI 切换。
-- **Draft publishing**: 自动获取/刷新 `access_token`，调用微信公众号草稿箱 API。
-- **skills.sh compatible**: 根目录包含标准 `SKILL.md`，可被 `skills` CLI 发现和安装。
+- **Obsidian 优先**：支持 `![[image.png]]`、`![[video.mp4|标题]]`、Callout、Admonition 和文章元数据。
+- **微信公众号兼容**：链接自动转脚注，关键样式内联，避免微信编辑器过滤常见 CSS/JavaScript。
+- **媒体处理流水线**：本地/远程图片上传到微信图片 CDN，本地 MP4 上传为永久视频素材后在正文中引用。
+- **Mermaid 图表渲染**：Mermaid 图表转图片后上传，草稿中无需 JavaScript。
+- **封面处理**：支持 `thumb_media_id`、本地/远程封面、默认封面和可选 AI 自动封面。
+- **样式主题**：内置 `classic` 和 `deepblue`，可通过文章元数据或命令行切换。
+- **草稿箱发布**：自动获取/刷新 `access_token`，调用微信公众号草稿箱接口。
+- **兼容 skills.sh**：根目录包含标准 `SKILL.md`，可被 `skills` 命令行工具发现和安装。
 
-## Quick Start
+## 快速开始
 
 ```bash
-git clone <repo-url>
-cd obsidian-wechat
+git clone https://github.com/anbulang/obsidian-wechat-skill.git
+cd obsidian-wechat-skill
 
 python3 -m venv .venv
 source .venv/bin/activate
@@ -40,33 +40,33 @@ cp config/wechat-credentials.example.md config/wechat-credentials.local.md
 ./publish.sh path/to/article.md --style deepblue
 ```
 
-## Install As A Skill
+## 作为智能体技能安装
 
-本仓库遵循 Agent Skills 格式，`skills` CLI 会发现根目录的 `SKILL.md`。
+本仓库遵循智能体技能格式，`skills` 命令行工具会发现根目录的 `SKILL.md`。
 
 从 Git 仓库安装：
 
 ```bash
-npx skills add <git-url> --skill obsidian-wechat
-npx skills add <owner>/<repo> --skill obsidian-wechat
+npx skills add https://github.com/anbulang/obsidian-wechat-skill.git --skill obsidian-wechat
+npx skills add anbulang/obsidian-wechat-skill --skill obsidian-wechat
 ```
 
-安装到特定 agent：
+安装到特定智能体：
 
 ```bash
-npx skills add <owner>/<repo> --skill obsidian-wechat --agent codex
-npx skills add <owner>/<repo> --skill obsidian-wechat --agent claude-code
+npx skills add anbulang/obsidian-wechat-skill --skill obsidian-wechat --agent codex
+npx skills add anbulang/obsidian-wechat-skill --skill obsidian-wechat --agent claude-code
 ```
 
-本地开发时列出可发现的 skill：
+本地开发时列出可发现的技能：
 
 ```bash
 npx skills add . --list
 ```
 
-> 我在本地做了静态兼容性检查：`SKILL.md` 位于仓库根目录，frontmatter 包含 `name: obsidian-wechat` 和 `description`，符合 `skills` CLI 的发现要求。实际 `npx skills add . --list` 需要联网下载 CLI，本环境的安全策略阻止了未固定的 `npx` 远程执行。
+> 我在本地做了静态兼容性检查：`SKILL.md` 位于仓库根目录，元数据包含 `name: obsidian-wechat` 和 `description`，符合 `skills` 命令行工具的发现要求。实际 `npx skills add . --list` 需要联网下载命令行工具，本环境的安全策略阻止了未固定的 `npx` 远程执行。
 
-## Article Format
+## 文章格式
 
 最小示例：
 
@@ -88,21 +88,21 @@ style: "deepblue"
 ![[clips/demo.mp4|演示视频]]
 ```
 
-### Frontmatter
+### 文章元数据字段
 
-| Field | Required | Description |
+| 字段 | 是否必填 | 说明 |
 | --- | --- | --- |
-| `title` | No | 文章标题；未设置时使用“未命名文章”。 |
-| `author` | No | 作者；默认来自 `default_author`。 |
-| `digest` | No | 摘要；也会作为视频简介的候选值。 |
-| `thumb_media_id` | No | 已上传的封面素材 ID，优先级最高。 |
-| `banner` / `cover` / `image` | No | 本地或 HTTPS 封面图。 |
-| `source_url` | No | “阅读原文”链接。 |
-| `style` / `theme` | No | `classic` 或 `deepblue`。 |
-| `video_introduction` | No | 视频素材简介；未设置时使用 `digest` 或视频标题。 |
-| `open_comment` | No | `0` 关闭评论，`1` 开启评论。 |
+| `title` | 否 | 文章标题；未设置时使用“未命名文章”。 |
+| `author` | 否 | 作者；默认来自 `default_author`。 |
+| `digest` | 否 | 摘要；也会作为视频简介的候选值。 |
+| `thumb_media_id` | 否 | 已上传的封面素材 ID，优先级最高。 |
+| `banner` / `cover` / `image` | 否 | 本地或 HTTPS 封面图。 |
+| `source_url` | 否 | “阅读原文”链接。 |
+| `style` / `theme` | 否 | `classic` 或 `deepblue`。 |
+| `video_introduction` | 否 | 视频素材简介；未设置时使用 `digest` 或视频标题。 |
+| `open_comment` | 否 | `0` 关闭评论，`1` 开启评论。 |
 
-### Media
+### 图片与视频
 
 图片：
 
@@ -126,7 +126,90 @@ style: "deepblue"
 - 远程视频 URL 不会自动下载上传
 - `.mov`、`.webm` 等会被识别为视频，但会明确报错，避免误走图片上传
 
-## Configuration
+## 样式示例
+
+### `deepblue`：深蓝商务长文
+
+对应截图里的蓝色标题块风格：适合 AI、管理、咨询、技术评论类长文。它使用深蓝色作为主强调色，二级标题居中显示为蓝底白字按钮状标题，正文段落更紧凑，适合长篇阅读。
+
+使用方式：
+
+```yaml
+---
+title: "为什么你的 AI-First 战略大概率是错的"
+style: "deepblue"
+---
+```
+
+示例内容：
+
+```markdown
+> [!info]
+> 原文：Peter Pang《Why Your AI-First Strategy Is Probably Wrong》
+> 链接：https://x.com/intuitiveml/status/204354596699750791
+
+## 开头：一天完成过去六周的产品循环
+
+上周三上午 10 点，团队上线了一个新功能。
+
+这也是这篇文章最值得讨论的地方：
+**AI-first 不是使用 AI。AI-first 是围绕 AI 重建组织。**
+
+## 一、AI-assisted 和 AI-first 是两回事
+
+很多公司说自己 AI-first，其实只是 AI-assisted。
+```
+
+视觉特征：
+
+- 主色为深蓝
+- 二级标题为居中的深蓝底白字标题块
+- 三级标题使用左侧深蓝竖线和虚线下边框
+- 加粗文本使用深蓝强调
+- 正文适合较长段落和图文交替
+
+### `classic`：红色强调知识文
+
+对应截图里的红色标题、浅暖表格和橙色 Question Callout 风格：适合架构设计、技术方案、教程和问答型文章。它保留默认暖色背景，标题和表格强调更明显，适合结构化说明。
+
+使用方式：
+
+```yaml
+---
+title: "关于统一认证中心设计的思考"
+style: "classic"
+---
+```
+
+示例内容：
+
+```markdown
+> [!question] Question
+> 如果使用 OAuth 2.0 协议来设计一个公司内部的单点登录系统？
+> 用户入口主要是“XX通 APP”，通过 XX 通登录到集成门户。
+
+## 一、核心概念映射
+
+| 实体 | 角色 | 说明 |
+| --- | --- | --- |
+| XX通 APP | 外部 IdP | 整个链路的信任源头，负责用户初次实名认证。 |
+| 集成门户 | Client 与 IdP | 对外信任 XX 通，对内签发访问令牌。 |
+| 内部业务系统 | Resource Server | OA、HR、财务等业务应用。 |
+
+## 二、总体架构设计
+
+建议采用 BFF 或独立 IAM 服务模式。
+```
+
+视觉特征：
+
+- 主色为红色
+- Callout 使用浅色背景和醒目的左侧边框
+- 表格为浅暖底色，表头和强调文本更突出
+- 二级标题使用红色左边框和虚线分隔
+- 适合教程、方案、设计文档和问答型内容
+
+## 配置
 
 复制示例配置后修改：
 
@@ -136,16 +219,16 @@ cp config/wechat-credentials.example.md config/wechat-credentials.local.md
 
 核心字段：
 
-| Field | Required | Description |
+| 字段 | 是否必填 | 说明 |
 | --- | --- | --- |
-| `appid` | Yes | 微信公众号 AppID。 |
-| `secret` | Yes | 微信公众号 AppSecret。 |
-| `access_token` | No | 自动缓存，无需手填。 |
-| `token_expires` | No | 自动缓存，无需手填。 |
-| `default_author` | No | 默认作者。 |
-| `default_thumb_media_id` | No | 默认封面素材 ID。 |
-| `default_style` | No | 默认样式，`classic` 或 `deepblue`。 |
-| `ai_cover` | No | 可选 AI 自动封面配置，默认关闭。 |
+| `appid` | 是 | 微信公众号 AppID。 |
+| `secret` | 是 | 微信公众号 AppSecret。 |
+| `access_token` | 否 | 自动缓存，无需手填。 |
+| `token_expires` | 否 | 自动缓存，无需手填。 |
+| `default_author` | 否 | 默认作者。 |
+| `default_thumb_media_id` | 否 | 默认封面素材 ID。 |
+| `default_style` | 否 | 默认样式，`classic` 或 `deepblue`。 |
+| `ai_cover` | 否 | 可选 AI 自动封面配置，默认关闭。 |
 
 微信公众号后台还需要配置当前公网 IP 白名单：
 
@@ -153,21 +236,21 @@ cp config/wechat-credentials.example.md config/wechat-credentials.local.md
 curl -s ifconfig.me
 ```
 
-## How It Works
+## 工作原理
 
 ```mermaid
 flowchart LR
-  A[Markdown] --> B[Parse frontmatter]
-  B --> C[Preprocess Obsidian syntax]
-  C --> D[Upload images and videos]
-  D --> E[Convert Markdown to WeChat HTML]
-  E --> F[Resolve cover media_id]
-  F --> G[Create draft]
+  A[Markdown 原文] --> B[解析文章元数据]
+  B --> C[预处理 Obsidian 语法]
+  C --> D[上传图片和视频]
+  D --> E[转换为微信 HTML]
+  E --> F[解析封面素材 ID]
+  F --> G[创建草稿]
 ```
 
 发布流程：
 
-1. 读取 Markdown，解析 Frontmatter。
+1. 读取 Markdown，解析文章元数据。
 2. 处理 Obsidian 嵌入、Callout、Admonition、Mermaid。
 3. 上传正文图片到 `/cgi-bin/media/uploadimg`。
 4. 上传正文 MP4 到 `/cgi-bin/material/add_material?type=video`。
@@ -175,14 +258,14 @@ flowchart LR
 6. 解析或上传封面，获取 `thumb_media_id`。
 7. 调用 `/cgi-bin/draft/add` 创建草稿。
 
-## Project Structure
+## 项目结构
 
 ```text
 .
-├── SKILL.md                         # Agent Skill definition
-├── agents/openai.yaml               # Optional UI metadata for skill-aware clients
-├── publish_to_wechat.py             # Converter and publisher
-├── publish.sh                       # Thin wrapper around the Python script
+├── SKILL.md                         # 技能定义
+├── agents/openai.yaml               # 技能客户端可选展示元数据
+├── publish_to_wechat.py             # 转换与发布脚本
+├── publish.sh                       # Python 脚本的命令行包装
 ├── config/
 │   └── wechat-credentials.example.md
 ├── references/
@@ -194,21 +277,21 @@ flowchart LR
 └── test_*.py
 ```
 
-## Development
+## 开发
 
-Run the test suite:
+运行完整测试：
 
 ```bash
 pytest -q
 ```
 
-Run focused tests:
+运行媒体相关测试：
 
 ```bash
 pytest -q test_image_processing.py test_video_processing.py
 ```
 
-Validate skill frontmatter locally:
+本地验证技能元数据：
 
 ```bash
 .venv/bin/python3 - <<'PY'
@@ -224,25 +307,25 @@ print("SKILL.md frontmatter OK")
 PY
 ```
 
-## Security Notes
+## 安全说明
 
-- Do not commit `config/wechat-credentials.local.md`.
-- `*.local.md`, virtual environments, caches, and generated cover cache are ignored.
-- Remote image URLs must be HTTPS and are checked to avoid private/loopback hosts.
-- The script does not execute JavaScript from Markdown content.
-- AI cover generation is opt-in; set `ai_cover.enabled: true` only after configuring a provider intentionally.
+- 不要提交 `config/wechat-credentials.local.md`。
+- `*.local.md`、虚拟环境、缓存和生成封面缓存已加入忽略规则。
+- 远程图片 URL 必须使用 HTTPS，并会检查是否指向内网或本机地址。
+- 脚本不会执行 Markdown 内容中的 JavaScript。
+- AI 自动封面默认关闭；只有明确配置提供商并设置 `ai_cover.enabled: true` 后才会请求外部生图服务。
 
-## Troubleshooting
+## 常见问题
 
-| Symptom | Likely Cause | Fix |
+| 现象 | 可能原因 | 解决方式 |
 | --- | --- | --- |
-| `40164` | IP not in WeChat whitelist | Add your public IP in WeChat Official Account settings. |
-| `40001` / `42001` | Token invalid or expired | The script refreshes once automatically; check `appid/secret` if it persists. |
-| Missing cover | No `thumb_media_id`, cover, AI cover, or default cover | Configure `default_thumb_media_id` or add `banner`. |
-| Image upload failed | Unsupported/oversized image or unsafe URL | Use JPG/PNG/GIF, keep under WeChat limits, or use HTTPS public URLs. |
-| Video upload failed | Not local MP4 or over 10MB | Convert/compress to local `.mp4`. |
-| Skill not found by CLI | Invalid/missing `SKILL.md` frontmatter | Ensure `name` and `description` exist in root `SKILL.md`. |
+| `40164` | 当前 IP 不在微信公众号白名单 | 在微信公众号后台加入当前公网 IP。 |
+| `40001` / `42001` | Token 无效或过期 | 脚本会自动刷新一次；若仍失败，检查 `appid` 和 `secret`。 |
+| 缺少封面 | 未配置 `thumb_media_id`、封面图、AI 封面或默认封面 | 配置 `default_thumb_media_id` 或添加 `banner`。 |
+| 图片上传失败 | 图片格式/大小不支持，或远程 URL 不安全 | 使用 JPG/PNG/GIF，控制大小，并使用公开 HTTPS URL。 |
+| 视频上传失败 | 不是本地 MP4，或超过 10MB | 转换并压缩为本地 `.mp4`。 |
+| 技能无法被发现 | `SKILL.md` 元数据缺失或无效 | 确保根目录 `SKILL.md` 包含 `name` 和 `description`。 |
 
-## License
+## 许可证
 
-MIT. See [LICENSE](LICENSE).
+MIT。详见 [LICENSE](LICENSE)。
