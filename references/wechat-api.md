@@ -115,7 +115,37 @@ curl -s -X POST \
 
 ---
 
-## 4. 创建草稿
+## 4. 上传视频（永久素材）
+
+正文中的本地 MP4 视频需要作为永久视频素材上传，获取 `media_id` 后再在文章 HTML 中引用。
+
+### 请求
+
+```bash
+curl -s -X POST \
+  "https://api.weixin.qq.com/cgi-bin/material/add_material?access_token=${TOKEN}&type=video" \
+  -F "media=@/path/to/video.mp4;type=video/mp4" \
+  -F 'description={"title":"视频标题","introduction":"视频简介"}'
+```
+
+### 响应
+
+```json
+{
+  "media_id": "VIDEO_MEDIA_ID"
+}
+```
+
+### 注意事项
+
+- 当前脚本只处理本地 `.mp4` 文件
+- 视频大小限制为 10MB
+- `description` 必须是 JSON 字符串，包含 `title` 和 `introduction`
+- Obsidian 写法 `![[video.mp4|视频标题]]` 会使用 `视频标题` 作为 title
+
+---
+
+## 5. 创建草稿
 
 ### 请求
 

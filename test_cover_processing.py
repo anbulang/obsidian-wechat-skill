@@ -574,7 +574,7 @@ def test_main_resolves_cover_from_raw_markdown_body():
         wechat.load_config = lambda: {"default_author": "author", "default_thumb_media_id": "default"}
         wechat.get_access_token = lambda config: "token"
         wechat.process_content_workflow = lambda raw, token, article_dir: ({"title": "Title"}, '<img src="wechat-cdn">')
-        wechat.md_to_html = lambda body: "<section>html</section>"
+        wechat.md_to_html = lambda body, theme_name=None: "<section>html</section>"
 
         def capture_cover_body(frontmatter, config, token, article_dir, body=""):
             captured["body"] = body

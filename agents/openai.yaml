@@ -1,0 +1,8 @@
+interface:
+  display_name: "Obsidian WeChat Publisher"
+  short_description: "Convert Obsidian notes to WeChat drafts"
+  brand_color: "#07C160"
+  default_prompt: "Use $obsidian-wechat to convert this Obsidian Markdown article into a WeChat Official Account draft."
+
+policy:
+  allow_implicit_invocation: true

@@ -5,6 +5,7 @@ access_token: ""
 token_expires: 0
 default_author: "作者名"
 default_thumb_media_id: ""
+default_style: "classic" # classic | deepblue
 # AI 自动封面配置（可选）
 ai_cover:
   enabled: false
@@ -51,6 +52,7 @@ ai_cover:
 | token_expires          | 令牌过期时间戳 | 自动填充，无需手动设置   |
 | default_author         | 默认作者名     | 文章未指定 author 时使用 |
 | default_thumb_media_id | 默认封面图 ID  | 文章未指定封面时使用     |
+| default_style          | 默认文章样式   | 可选 `classic` 或 `deepblue` |
 | ai_cover               | AI 自动封面配置 | 默认关闭，开启后会请求配置的生图服务 |
 
 ## 配置步骤

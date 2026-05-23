@@ -1,224 +1,248 @@
 # Obsidian WeChat Publisher
 
-[English](#english) | [中文](#中文)
+把 Obsidian Flavored Markdown 转成微信公众号草稿箱可用的富文本 HTML，并自动处理图片、视频、Mermaid、Callout、代码高亮、封面和发布 API。
 
----
+这是一个可直接安装的 Agent Skill：既可以在命令行里用 `./publish.sh` 发布文章，也可以让 Claude Code、Codex 等 agent 在需要“微信公众号排版/发布”时自动调用。
 
-## English
+## Highlights
 
-A Claude Code Skill that converts Obsidian Markdown to WeChat-compatible HTML and publishes directly to WeChat Official Account drafts.
+- **Obsidian-first**: 支持 `![[image.png]]`、`![[video.mp4|标题]]`、Callout、Admonition、Frontmatter。
+- **WeChat-ready HTML**: 链接转脚注，样式内联，避免微信编辑器过滤常见 CSS/JS。
+- **Media pipeline**: 本地/远程图片上传到微信 CDN，本地 MP4 上传为永久视频素材后在正文中引用。
+- **Mermaid rendering**: Mermaid 图表转图片后上传，草稿中无需 JavaScript。
+- **Cover handling**: 支持 `thumb_media_id`、本地/远程封面、默认封面和可选 AI 自动封面。
+- **Style themes**: 内置 `classic` 和 `deepblue`，可通过 Frontmatter 或 CLI 切换。
+- **Draft publishing**: 自动获取/刷新 `access_token`，调用微信公众号草稿箱 API。
+- **skills.sh compatible**: 根目录包含标准 `SKILL.md`，可被 `skills` CLI 发现和安装。
 
-### Features
+## Quick Start
 
-- **Obsidian Flavored Markdown** → WeChat-compatible rich HTML
-- **Admonition/Callout Support** - `ad-*` code blocks and `> [!type]` syntax
-- **Mermaid Diagrams** - Auto-rendered via mermaid.ink API
-- **Syntax Highlighting** - Pygments-based code highlighting with line numbers
-- **Auto Footnotes** - Links automatically converted to footnotes (WeChat doesn't support clickable links)
-- **Smart Cover Images** - Unsplash integration with Chinese keyword translation
-- **One-Click Publish** - Direct publish to WeChat drafts via API
+```bash
+git clone <repo-url>
+cd obsidian-wechat
 
-### Quick Start
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/yourusername/obsidian-wechat.git
-   cd obsidian-wechat
-   ```
-
-2. **Install dependencies**
-   ```bash
-   python3 -m venv .venv
-   source .venv/bin/activate
-   pip install -r requirements.txt
-   ```
-
-3. **Configure credentials**
-   ```bash
-   cp config/wechat-credentials.example.md config/wechat-credentials.local.md
-   # Edit the file with your WeChat AppID and Secret
-   ```
-
-4. **Publish an article**
-   ```bash
-   ./publish.sh your-article.md
-   ```
-
-### Configuration
-
-Edit `config/wechat-credentials.local.md`:
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `appid` | Yes | WeChat Official Account AppID |
-| `secret` | Yes | WeChat Official Account AppSecret |
-| `default_author` | No | Default author name |
-| `default_thumb_media_id` | No | Default cover image media ID |
-| `unsplash_access_key` | No | Unsplash API key for auto cover |
-| `enable_auto_cover` | No | Enable auto cover image from Unsplash |
-
-### Article Frontmatter
-
-```yaml
----
-title: "Article Title"
-author: "Author Name"
-banner: "https://example.com/cover.jpg"  # or local path
-digest: "Article summary"
----
+cp config/wechat-credentials.example.md config/wechat-credentials.local.md
 ```
 
-### WeChat API Setup
+编辑 `config/wechat-credentials.local.md`，填入微信公众号 `appid` 和 `secret`，然后发布：
 
-1. Login to [WeChat Official Account Platform](https://mp.weixin.qq.com)
-2. Go to **Settings & Development** → **Basic Configuration**
-3. Copy your AppID and reset AppSecret
-4. Add your public IP to the whitelist:
-   ```bash
-   curl -s ifconfig.me
-   ```
+```bash
+./publish.sh path/to/article.md
+```
 
-### Using as Claude Code Skill
+指定样式主题：
 
-This project is a [Claude Code Skill](https://docs.anthropic.com/en/docs/claude-code). To use it:
+```bash
+./publish.sh path/to/article.md --style deepblue
+```
 
-1. **Install the skill** - Copy this folder to your Claude Code skills directory
-2. **Trigger the skill** - Use natural language commands:
-   - "Convert this article to WeChat format"
-   - "Publish to WeChat drafts"
-   - "Generate WeChat HTML"
-3. **Claude will automatically**:
-   - Read and parse your Markdown file
-   - Convert to WeChat-compatible HTML
-   - Upload images and publish to drafts
+## Install As A Skill
 
----
+本仓库遵循 Agent Skills 格式，`skills` CLI 会发现根目录的 `SKILL.md`。
 
-## 中文
+从 Git 仓库安装：
 
-一个 Claude Code Skill，将 Obsidian Markdown 转换为微信公众号兼容的 HTML，并支持一键发布到草稿箱。
+```bash
+npx skills add <git-url> --skill obsidian-wechat
+npx skills add <owner>/<repo> --skill obsidian-wechat
+```
 
-### 功能特性
+安装到特定 agent：
 
-- **Obsidian 风格 Markdown** → 微信兼容富文本 HTML
-- **Admonition/Callout 支持** - `ad-*` 代码块和 `> [!type]` 语法
-- **Mermaid 图表** - 通过 mermaid.ink API 自动渲染
-- **语法高亮** - 基于 Pygments 的代码高亮（带行号）
-- **自动脚注** - 链接自动转换为脚注（微信不支持可点击链接）
-- **智能封面图** - Unsplash 集成，支持中文关键词自动翻译
-- **一键发布** - 通过 API 直接发布到微信草稿箱
+```bash
+npx skills add <owner>/<repo> --skill obsidian-wechat --agent codex
+npx skills add <owner>/<repo> --skill obsidian-wechat --agent claude-code
+```
 
-### 快速开始
+本地开发时列出可发现的 skill：
 
-1. **克隆仓库**
-   ```bash
-   git clone https://github.com/yourusername/obsidian-wechat.git
-   cd obsidian-wechat
-   ```
+```bash
+npx skills add . --list
+```
 
-2. **安装依赖**
-   ```bash
-   python3 -m venv .venv
-   source .venv/bin/activate
-   pip install -r requirements.txt
-   ```
+> 我在本地做了静态兼容性检查：`SKILL.md` 位于仓库根目录，frontmatter 包含 `name: obsidian-wechat` 和 `description`，符合 `skills` CLI 的发现要求。实际 `npx skills add . --list` 需要联网下载 CLI，本环境的安全策略阻止了未固定的 `npx` 远程执行。
 
-3. **配置凭证**
-   ```bash
-   cp config/wechat-credentials.example.md config/wechat-credentials.local.md
-   # 编辑文件，填入你的微信 AppID 和 Secret
-   ```
+## Article Format
 
-4. **发布文章**
-   ```bash
-   ./publish.sh your-article.md
-   ```
+最小示例：
 
-### 配置说明
-
-编辑 `config/wechat-credentials.local.md`：
-
-| 字段 | 必填 | 说明 |
-|------|------|------|
-| `appid` | 是 | 微信公众号 AppID |
-| `secret` | 是 | 微信公众号 AppSecret |
-| `default_author` | 否 | 默认作者名 |
-| `default_thumb_media_id` | 否 | 默认封面图素材 ID |
-| `unsplash_access_key` | 否 | Unsplash API 密钥（自动封面） |
-| `enable_auto_cover` | 否 | 启用 Unsplash 自动封面 |
-
-### 文章 Frontmatter
-
-```yaml
+```markdown
 ---
 title: "文章标题"
 author: "作者名"
-banner: "https://example.com/cover.jpg"  # 或本地路径
-digest: "文章摘要"
+digest: "摘要会显示在草稿列表中"
+banner: "cover.jpg"
+style: "deepblue"
 ---
+
+# 标题
+
+正文内容。
+
+![[images/demo.png|配图说明]]
+
+![[clips/demo.mp4|演示视频]]
 ```
 
-### 自动封面功能
+### Frontmatter
 
-当文章没有指定封面时，系统会：
+| Field | Required | Description |
+| --- | --- | --- |
+| `title` | No | 文章标题；未设置时使用“未命名文章”。 |
+| `author` | No | 作者；默认来自 `default_author`。 |
+| `digest` | No | 摘要；也会作为视频简介的候选值。 |
+| `thumb_media_id` | No | 已上传的封面素材 ID，优先级最高。 |
+| `banner` / `cover` / `image` | No | 本地或 HTTPS 封面图。 |
+| `source_url` | No | “阅读原文”链接。 |
+| `style` / `theme` | No | `classic` 或 `deepblue`。 |
+| `video_introduction` | No | 视频素材简介；未设置时使用 `digest` 或视频标题。 |
+| `open_comment` | No | `0` 关闭评论，`1` 开启评论。 |
 
-1. 从文章标题/内容提取关键词
-2. 使用三层降级策略翻译中文关键词：
-   - 内置字典快速匹配
-   - Google 翻译 API
-   - 随机分类（nature, technology, business 等）
-3. 调用 Unsplash API 搜索匹配图片
-4. 自动下载并上传到微信素材库
+### Media
 
-### 微信 API 配置
+图片：
 
-1. 登录 [微信公众平台](https://mp.weixin.qq.com)
-2. 进入 **设置与开发** → **基本配置**
-3. 复制 AppID，重置 AppSecret
-4. 添加公网 IP 到白名单：
-   ```bash
-   curl -s ifconfig.me
-   ```
-
-### 错误处理
-
-| 错误码 | 原因 | 解决方案 |
-|--------|------|----------|
-| 40164 | IP 不在白名单 | 添加公网 IP 到白名单 |
-| 40001 | Token 无效 | 重新获取 access_token |
-| 45009 | 调用超限 | 等待后重试 |
-
-### 作为 Claude Code Skill 使用
-
-本项目是一个 [Claude Code Skill](https://docs.anthropic.com/en/docs/claude-code)。使用方法：
-
-1. **安装 Skill** - 将此文件夹复制到 Claude Code skills 目录
-2. **触发 Skill** - 使用自然语言命令：
-   - "把这篇文章转换成微信公众号格式"
-   - "发布到微信公众号草稿箱"
-   - "生成公众号 HTML"
-   - 提到"微信公众号排版"
-3. **Claude 会自动**：
-   - 读取并解析 Markdown 文件
-   - 转换为微信兼容 HTML
-   - 上传图片并发布到草稿箱
-
-**Skill 目录结构：**
-
-```
-~/.claude/skills/obsidian-wechat/
-├── SKILL.md          # Skill 定义（必需）
-├── config/           # 凭证配置
-├── references/       # 参考文档
-└── publish_to_wechat.py  # 发布脚本
+```markdown
+![[image.png]]
+![[folder/image.webp|图片说明]]
+![图片说明](https://example.com/image.png)
 ```
 
----
+视频：
+
+```markdown
+![[demo.mp4|视频标题]]
+![视频标题](demo.mp4)
+```
+
+视频限制：
+
+- 仅支持本地 `.mp4`
+- 微信永久视频素材限制为 10MB
+- 远程视频 URL 不会自动下载上传
+- `.mov`、`.webm` 等会被识别为视频，但会明确报错，避免误走图片上传
+
+## Configuration
+
+复制示例配置后修改：
+
+```bash
+cp config/wechat-credentials.example.md config/wechat-credentials.local.md
+```
+
+核心字段：
+
+| Field | Required | Description |
+| --- | --- | --- |
+| `appid` | Yes | 微信公众号 AppID。 |
+| `secret` | Yes | 微信公众号 AppSecret。 |
+| `access_token` | No | 自动缓存，无需手填。 |
+| `token_expires` | No | 自动缓存，无需手填。 |
+| `default_author` | No | 默认作者。 |
+| `default_thumb_media_id` | No | 默认封面素材 ID。 |
+| `default_style` | No | 默认样式，`classic` 或 `deepblue`。 |
+| `ai_cover` | No | 可选 AI 自动封面配置，默认关闭。 |
+
+微信公众号后台还需要配置当前公网 IP 白名单：
+
+```bash
+curl -s ifconfig.me
+```
+
+## How It Works
+
+```mermaid
+flowchart LR
+  A[Markdown] --> B[Parse frontmatter]
+  B --> C[Preprocess Obsidian syntax]
+  C --> D[Upload images and videos]
+  D --> E[Convert Markdown to WeChat HTML]
+  E --> F[Resolve cover media_id]
+  F --> G[Create draft]
+```
+
+发布流程：
+
+1. 读取 Markdown，解析 Frontmatter。
+2. 处理 Obsidian 嵌入、Callout、Admonition、Mermaid。
+3. 上传正文图片到 `/cgi-bin/media/uploadimg`。
+4. 上传正文 MP4 到 `/cgi-bin/material/add_material?type=video`。
+5. 生成微信兼容 HTML。
+6. 解析或上传封面，获取 `thumb_media_id`。
+7. 调用 `/cgi-bin/draft/add` 创建草稿。
+
+## Project Structure
+
+```text
+.
+├── SKILL.md                         # Agent Skill definition
+├── agents/openai.yaml               # Optional UI metadata for skill-aware clients
+├── publish_to_wechat.py             # Converter and publisher
+├── publish.sh                       # Thin wrapper around the Python script
+├── config/
+│   └── wechat-credentials.example.md
+├── references/
+│   ├── admonition-mapping.md
+│   ├── mermaid-handling.md
+│   ├── style-themes.md
+│   ├── wechat-api.md
+│   └── wechat-css-styles.md
+└── test_*.py
+```
+
+## Development
+
+Run the test suite:
+
+```bash
+pytest -q
+```
+
+Run focused tests:
+
+```bash
+pytest -q test_image_processing.py test_video_processing.py
+```
+
+Validate skill frontmatter locally:
+
+```bash
+.venv/bin/python3 - <<'PY'
+from pathlib import Path
+import yaml
+
+text = Path("SKILL.md").read_text()
+_, frontmatter, _ = text.split("---", 2)
+data = yaml.safe_load(frontmatter)
+assert data["name"] == "obsidian-wechat"
+assert data["description"]
+print("SKILL.md frontmatter OK")
+PY
+```
+
+## Security Notes
+
+- Do not commit `config/wechat-credentials.local.md`.
+- `*.local.md`, virtual environments, caches, and generated cover cache are ignored.
+- Remote image URLs must be HTTPS and are checked to avoid private/loopback hosts.
+- The script does not execute JavaScript from Markdown content.
+- AI cover generation is opt-in; set `ai_cover.enabled: true` only after configuring a provider intentionally.
+
+## Troubleshooting
+
+| Symptom | Likely Cause | Fix |
+| --- | --- | --- |
+| `40164` | IP not in WeChat whitelist | Add your public IP in WeChat Official Account settings. |
+| `40001` / `42001` | Token invalid or expired | The script refreshes once automatically; check `appid/secret` if it persists. |
+| Missing cover | No `thumb_media_id`, cover, AI cover, or default cover | Configure `default_thumb_media_id` or add `banner`. |
+| Image upload failed | Unsupported/oversized image or unsafe URL | Use JPG/PNG/GIF, keep under WeChat limits, or use HTTPS public URLs. |
+| Video upload failed | Not local MP4 or over 10MB | Convert/compress to local `.mp4`. |
+| Skill not found by CLI | Invalid/missing `SKILL.md` frontmatter | Ensure `name` and `description` exist in root `SKILL.md`. |
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
-
-## Contributing
-
-Issues and Pull Requests are welcome!
+MIT. See [LICENSE](LICENSE).

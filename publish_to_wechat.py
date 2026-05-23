@@ -36,6 +36,11 @@ WECHAT_IMAGE_TYPES = {
     '.png': 'image/png',
     '.gif': 'image/gif',
 }
+WECHAT_VIDEO_TYPES = {
+    '.mp4': 'video/mp4',
+}
+VIDEO_EXTENSIONS = {'.mp4', '.mov', '.m4v', '.webm', '.avi', '.mkv'}
+MAX_WECHAT_VIDEO_BYTES = 10 * 1024 * 1024
 COVER_SOURCE_FIELDS = ('banner', 'banner_path', 'cover', 'cover_image', 'thumbnail', 'image', 'featured_image')
 AI_COVER_CACHE_DIRNAME = '.wechat-cover-cache'
 AI_COVER_DEFAULT_PROMPT = """根据下面的微信公众号文章内容生成一张横版封面图。
@@ -157,6 +162,77 @@ BASIC_STYLE = """
   .footnote-item { margin-bottom: 10px; }
 </style>
 """
+
+DEEPBLUE_STYLE = """
+<style>
+  #nice { font-family: -apple-system-font, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", Arial, sans-serif; font-size: 14px; line-height: 1.75; color: rgb(63, 63, 63); word-wrap: break-word; background-color: #fff; }
+  #nice p { margin: 1.5em 8px; text-align: justify; line-height: 1.75; font-size: 14px; letter-spacing: 0.1em; color: rgb(63, 63, 63); }
+  #nice h1 { font-size: 20px; font-weight: bold; margin: 1.5em auto 1em; text-align: center; line-height: 1.6; color: rgb(15, 76, 129); }
+  #nice h2 { font-size: 18.2px; font-weight: bold; margin: 4em auto 2em; text-align: center; line-height: 1.75; display: table; padding: 0.3em 1em; color: #fff; background: rgb(15, 76, 129); border-radius: 8px; box-shadow: rgba(0,0,0,0.10) 0 4px 6px; }
+  #nice h3 { font-size: 16.8px; font-weight: bold; margin: 2em 8px 0.75em 0; text-align: left; line-height: 1.2; padding-left: 12px; color: rgb(63, 63, 63); border-left: 4px solid rgb(15, 76, 129); border-bottom: 1px dashed rgb(15, 76, 129); }
+  #nice h4 { font-size: 15px; font-weight: bold; margin: 1.8em 8px 0.75em; color: rgb(15, 76, 129); }
+  #nice code { background-color: rgba(15, 76, 129, .08); border-radius: 3px; font-size: 85%; margin: 0 2px; padding: .2em .4em; font-family: SFMono-Regular, Consolas, Liberation Mono, Menlo, Courier, monospace; color: rgb(15, 76, 129); }
+  #nice pre { background: #f6f8fa; border-radius: 6px; padding: 16px; overflow: auto; line-height: 1.6; }
+  #nice pre code { background: transparent; padding: 0; white-space: pre; color: #333; }
+  #nice blockquote { margin: 1.5em 8px; padding: 0.2em 1em; color: rgb(89, 89, 89); border-left: 4px solid rgb(15, 76, 129); background-color: rgba(15, 76, 129, 0.06); }
+  #nice img { max-width: 100%; border-radius: 4px; display: block; margin: 20px auto; }
+  #nice ul, #nice ol { padding-left: 0; margin: 0 8px 1.5em; }
+  #nice li { margin: 0.5em 0; line-height: 1.75; font-size: 14px; letter-spacing: 0.1em; color: rgb(63, 63, 63); }
+  #nice table { display: block; width: 100%; overflow: auto; margin: 1.5em 0; border-spacing: 0; border-collapse: collapse; font-size: 14px; }
+  #nice tr { background-color: #fff; border-top: 1px solid rgba(15, 76, 129, .18); }
+  #nice tr:nth-child(2n) { background-color: rgba(15, 76, 129, .04); }
+  #nice th, #nice td { padding: 8px 12px; border: 1px solid rgba(15, 76, 129, .18); }
+  #nice th { font-weight: 600; color: rgb(15, 76, 129); background-color: rgba(15, 76, 129, .08); }
+  #nice strong { color: rgb(15, 76, 129); font-weight: bold; }
+  #nice hr { border: none; border-top: 1px dashed rgb(15, 76, 129); margin: 40px 8px; }
+  .callout-icon svg { width: 20px; height: 20px; vertical-align: middle; }
+  .footnotes { font-size: 13px; color: #666; margin-top: 40px; padding-top: 20px; border-top: 1px dashed rgb(15, 76, 129); }
+  .footnote-item { margin-bottom: 10px; letter-spacing: 0; }
+</style>
+"""
+
+DEEPBLUE_STYLES = {
+    'h1': 'font-size: 20px; font-weight: bold; margin: 1.5em auto 1em; text-align: center; line-height: 1.6; color: rgb(15, 76, 129);',
+    'h2': 'font-size: 18.2px; font-weight: bold; margin: 4em auto 2em; text-align: center; line-height: 1.75; display: table; padding: 0.3em 1em; color: #fff; background: rgb(15, 76, 129); border-radius: 8px; box-shadow: rgba(0,0,0,0.10) 0 4px 6px;',
+    'h3': 'font-size: 16.8px; font-weight: bold; margin: 2em 8px 0.75em 0; text-align: left; line-height: 1.2; padding-left: 12px; color: rgb(63, 63, 63); border-left: 4px solid rgb(15, 76, 129); border-bottom: 1px dashed rgb(15, 76, 129);',
+    'h4': 'font-size: 15px; font-weight: bold; margin: 1.8em 8px 0.75em; color: rgb(15, 76, 129);',
+    'strong': 'color: rgb(15, 76, 129); font-weight: bold;',
+    'th': 'font-weight: 600; color: rgb(15, 76, 129); padding: 8px 12px; border: 1px solid rgba(15, 76, 129, .18); background: rgba(15, 76, 129, .08);',
+    'td': 'padding: 8px 12px; border: 1px solid rgba(15, 76, 129, .18);',
+    'hr': 'border: 0; border-top: 1px dashed rgb(15, 76, 129); margin: 40px 8px;',
+    'list_container': "list-style: none; margin: 0em 8px 1.5em; padding: 0px; text-align: left; line-height: 1.75; font-family: -apple-system-font, BlinkMacSystemFont, 'Helvetica Neue', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei UI', 'Microsoft YaHei', Arial, sans-serif; font-size: 14px; letter-spacing: 0.1em; color: rgb(63, 63, 63);",
+    'list_item': "margin: 0.5em 0px; padding: 0px; text-align: left; line-height: 1.75; font-family: -apple-system-font, BlinkMacSystemFont, 'Helvetica Neue', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei UI', 'Microsoft YaHei', Arial, sans-serif; font-size: 14px; letter-spacing: 0.1em; color: rgb(63, 63, 63);",
+    'pre': 'background: #f6f8fa; border: 1px solid rgba(15, 76, 129, .14); border-radius: 6px; padding: 16px; margin: 16px 0; line-height: 1.6; font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace; font-size: 13px; color: #333; white-space: pre-wrap; word-break: break-all; overflow-x: auto;',
+    'inline_code': 'background: rgba(15, 76, 129, .08); color: rgb(15, 76, 129); padding: 2px 4px; border-radius: 3px; font-family: Consolas, Monaco, monospace; font-size: 13px; margin: 0 2px;',
+}
+
+STYLE_THEMES = {
+    'classic': {
+        'name': 'classic',
+        'description': '当前默认样式，红色强调、浅暖背景。',
+        'container': 'background-color: #fffdf9; padding: 20px; border-radius: 8px;',
+        'style_block': BASIC_STYLE,
+        'styles': STYLES,
+    },
+    'deepblue': {
+        'name': 'deepblue',
+        'description': '参考指定公众号文章的深蓝商务样式。',
+        'container': 'background-color: #fff; padding: 20px 0; border-radius: 0;',
+        'style_block': DEEPBLUE_STYLE,
+        'styles': DEEPBLUE_STYLES,
+    },
+}
+
+DEFAULT_STYLE_THEME = 'classic'
+
+
+def resolve_style_theme(theme_name: str | None) -> dict:
+    normalized = (theme_name or DEFAULT_STYLE_THEME).strip().lower()
+    normalized = {'default': 'classic', 'blue': 'deepblue', 'wechat-blue': 'deepblue'}.get(normalized, normalized)
+    if normalized not in STYLE_THEMES:
+        available = ', '.join(sorted(STYLE_THEMES))
+        raise ValueError(f"未知样式主题: {theme_name}。可用主题: {available}")
+    return STYLE_THEMES[normalized]
 
 
 # ================= 工具函数 =================
@@ -353,6 +429,33 @@ def parse_obsidian_image_embed(target: str) -> tuple[str, str]:
     return src, alt
 
 
+def get_media_extension(source: str) -> str:
+    parsed = urlparse(source.strip())
+    path = parsed.path if parsed.scheme else source
+    return os.path.splitext(unquote(path))[1].lower()
+
+
+def is_video_source(source: str) -> bool:
+    return get_media_extension(source) in VIDEO_EXTENSIONS
+
+
+def resolve_video_source(video_path_or_url: str, article_dir: str) -> tuple[str | None, str | None]:
+    source = unquote(video_path_or_url.strip())
+    if not source:
+        return None, "视频路径为空"
+    if is_remote_url(source):
+        return None, "视频暂只支持本地 MP4 文件，不能直接上传远程 URL"
+
+    resolved_src, error = resolve_image_source(source, article_dir)
+    if error:
+        return None, error.replace("图片", "视频")
+
+    ext = os.path.splitext(resolved_src)[1].lower()
+    if ext not in WECHAT_VIDEO_TYPES:
+        return None, f"微信视频素材仅支持 MP4: {source}"
+    return resolved_src, None
+
+
 def build_wechat_image_html(wechat_url: str, alt: str, source: str) -> str:
     is_mermaid = 'MERMAID_DIAGRAM' in alt
     wrapper_class = 'mermaid-wrapper' if is_mermaid else 'image-wrapper'
@@ -362,6 +465,24 @@ def build_wechat_image_html(wechat_url: str, alt: str, source: str) -> str:
     return f'''
 <section class="{wrapper_class}" style="text-align: center; margin: {'24' if is_mermaid else '20'}px 0;">
   <img src="{html_lib.escape(wechat_url, quote=True)}" alt="{html_lib.escape(alt_text, quote=True)}" style="max-width: 100%; height: auto; display: inline-block; border-radius: 4px; box-shadow: {shadow};" />
+</section>'''
+
+
+def build_wechat_video_html(media_id: str, title: str, source: str) -> str:
+    escaped_media_id = html_lib.escape(media_id, quote=True)
+    escaped_title = html_lib.escape(title or "视频", quote=True)
+    escaped_source = html_lib.escape(source, quote=True)
+
+    if media_id.startswith('wxv_'):
+        data_src = f"https://mp.weixin.qq.com/mp/readtemplate?t=pages/video_player_tmpl&action=mpvideo&auto=0&vid={media_id}"
+        return f'''
+<section class="video-wrapper" style="text-align: center; margin: 20px 0;">
+  <iframe class="video_iframe rich_pages" data-vidtype="2" data-mpvid="{escaped_media_id}" data-title="{escaped_title}" data-source="{escaped_source}" data-src="{html_lib.escape(data_src, quote=True)}" allowfullscreen="" frameborder="0" style="display: block; width: 100%; min-height: 220px; border: 0;"></iframe>
+</section>'''
+
+    return f'''
+<section class="video-wrapper" style="text-align: center; margin: 20px 0;">
+  <mpvideo class="video_iframe rich_pages js_editor_video" data-mediaid="{escaped_media_id}" data-title="{escaped_title}" data-source="{escaped_source}" style="display: block; width: 100%; min-height: 220px;"></mpvideo>
 </section>'''
 
 
@@ -548,6 +669,43 @@ def upload_image(token: str, image_path_or_url: str) -> str | None:
     finally:
         safe_unlink(converted_path)
         safe_unlink(temp_path)
+
+
+def upload_video_material(token: str, video_path: str, title: str, introduction: str) -> str | None:
+    """上传本地 MP4 为微信永久视频素材，返回 media_id。"""
+    if not os.path.exists(video_path):
+        print(f"本地视频不存在: {video_path}")
+        return None
+
+    ext = os.path.splitext(video_path)[1].lower()
+    content_type = WECHAT_VIDEO_TYPES.get(ext)
+    if not content_type:
+        print(f"微信视频素材仅支持 MP4: {video_path}")
+        return None
+
+    file_size = os.path.getsize(video_path)
+    if file_size > MAX_WECHAT_VIDEO_BYTES:
+        print(f"视频超过微信限制 10MB: {video_path}")
+        return None
+
+    url = f"{WECHAT_API_BASE}/material/add_material?access_token={token}&type=video"
+    description = {
+        "title": title or os.path.splitext(os.path.basename(video_path))[0] or "视频",
+        "introduction": introduction or title or "",
+    }
+
+    try:
+        with open(video_path, 'rb') as f:
+            files = {'media': (os.path.basename(video_path) or 'video.mp4', f, content_type)}
+            data = {'description': json.dumps(description, ensure_ascii=False)}
+            response = request_json("POST", url, files=files, data=data)
+        if 'media_id' not in response:
+            print(f"上传视频失败: {_safe_error_detail(response)}")
+            return None
+        return response['media_id']
+    except Exception as e:
+        print(f"上传视频失败: {e}")
+        return None
 
 
 # ================= AI 封面功能 =================
@@ -1292,12 +1450,13 @@ def _preprocess_json_comments(content: str) -> str:
 class WechatHTMLProcessor(HTMLParser):
     """微信兼容的 HTML 处理器"""
 
-    def __init__(self):
+    def __init__(self, styles: dict | None = None):
         super().__init__()
         self.output = []
         self.list_stack = []
         self.in_pre = False
         self.in_li = False
+        self.styles = styles or STYLES
 
     def handle_starttag(self, tag, attrs):
         attrs_dict = dict(attrs)
@@ -1305,12 +1464,12 @@ class WechatHTMLProcessor(HTMLParser):
         if tag in ('ul', 'ol'):
             marker_type = 'num' if tag == 'ol' else 'bull'
             self.list_stack.append({'tag': tag, 'count': 1, 'marker_type': marker_type})
-            self.output.append(self._build_tag(tag, self._inject_style(attrs, STYLES['list_container'])))
+            self.output.append(self._build_tag(tag, self._inject_style(attrs, self.styles['list_container'])))
             return
 
         if tag == 'li':
             self.in_li = True
-            self.output.append(self._build_tag(tag, self._inject_style(attrs, STYLES['list_item'])))
+            self.output.append(self._build_tag(tag, self._inject_style(attrs, self.styles['list_item'])))
             if self.list_stack:
                 current = self.list_stack[-1]
                 level = len(self.list_stack) - 1
@@ -1328,12 +1487,12 @@ class WechatHTMLProcessor(HTMLParser):
 
         if tag == 'pre':
             self.in_pre = True
-            self.output.append(self._build_tag(tag, self._inject_style(attrs, STYLES['pre'])))
+            self.output.append(self._build_tag(tag, self._inject_style(attrs, self.styles['pre'])))
             return
 
         if tag == 'code':
             if not self.in_pre and 'style' not in attrs_dict:
-                self.output.append(self._build_tag(tag, self._inject_style(attrs, STYLES['inline_code'])))
+                self.output.append(self._build_tag(tag, self._inject_style(attrs, self.styles['inline_code'])))
             else:
                 self.output.append(self._build_tag(tag, attrs))
             return
@@ -1386,8 +1545,10 @@ class WechatHTMLProcessor(HTMLParser):
         return list(new_attrs.items())
 
 
-def md_to_html(md_content: str) -> str:
+def md_to_html(md_content: str, theme_name: str | None = None) -> str:
     """Markdown 转 HTML"""
+    theme = resolve_style_theme(theme_name)
+    styles = theme['styles']
     html = markdown.markdown(
         md_content,
         extensions=['fenced_code', 'tables', 'codehilite'],
@@ -1402,22 +1563,22 @@ def md_to_html(md_content: str) -> str:
     )
 
     final_html = f'''
-    <section id="nice" style="background-color: #fffdf9; padding: 20px; border-radius: 8px;">
-        {BASIC_STYLE}
+    <section id="nice" data-style-theme="{theme['name']}" style="{theme['container']}">
+        {theme['style_block']}
         {html}
     </section>
     '''
 
     # 应用标签样式
     for tag in ['h1', 'h2', 'h3', 'h4', 'strong']:
-        final_html = final_html.replace(f'<{tag}>', f'<{tag} style="{STYLES[tag]}">')
+        final_html = final_html.replace(f'<{tag}>', f'<{tag} style="{styles[tag]}">')
 
-    final_html = final_html.replace('<th>', f'<th style="{STYLES["th"]}">')
-    final_html = final_html.replace('<td>', f'<td style="{STYLES["td"]}">')
-    final_html = re.sub(r'<hr\s*/?>', f'<hr style="{STYLES["hr"]}">', final_html)
+    final_html = final_html.replace('<th>', f'<th style="{styles["th"]}">')
+    final_html = final_html.replace('<td>', f'<td style="{styles["td"]}">')
+    final_html = re.sub(r'<hr\s*/?>', f'<hr style="{styles["hr"]}">', final_html)
 
     # 使用 HTML 处理器处理列表和代码块
-    processor = WechatHTMLProcessor()
+    processor = WechatHTMLProcessor(styles)
     processor.feed(final_html)
     final_html = "".join(processor.output)
 
@@ -1497,6 +1658,7 @@ def process_content_workflow(content: str, token: str, article_dir: str | None =
     """完整的 Markdown 处理工作流"""
     article_dir = article_dir or os.getcwd()
     image_failures = []
+    video_failures = []
 
     frontmatter, body = parse_frontmatter_content(content)
 
@@ -1531,20 +1693,44 @@ def process_content_workflow(content: str, token: str, article_dir: str | None =
 
         return build_wechat_image_html(wechat_url, alt, resolved_src)
 
+    def upload_body_video(src: str, title: str, original_markup: str) -> str:
+        resolved_src, error = resolve_video_source(src, article_dir)
+        if error:
+            video_failures.append(f"{src} - {error}")
+            return original_markup
+
+        print(f"正在上传视频: {src}")
+        if resolved_src != src:
+            print(f"  解析路径: {resolved_src}")
+
+        introduction = frontmatter.get('video_introduction') or frontmatter.get('digest') or title
+        media_id = upload_video_material(token, resolved_src, title, introduction)
+        if not media_id:
+            video_failures.append(f"{src} - 上传到微信失败")
+            return original_markup
+
+        return build_wechat_video_html(media_id, title, resolved_src)
+
     def replace_obsidian_img(m):
         src, alt = parse_obsidian_image_embed(m.group(1))
+        if is_video_source(src):
+            return upload_body_video(src, alt, m.group(0))
         return upload_body_image(src, alt, m.group(0))
 
     def replace_markdown_img(m):
         alt, src = m.group(1), m.group(2).strip()
+        if is_video_source(src):
+            return upload_body_video(src, alt, m.group(0))
         return upload_body_image(src, alt, m.group(0))
 
     body = re.sub(r'!\[\[([^\]]+)\]\]', replace_obsidian_img, body)
     body = re.sub(r'!\[(.*?)\]\((.*?)\)', replace_markdown_img, body)
 
-    if image_failures:
-        details = "\n".join(f"- {failure}" for failure in image_failures)
-        raise RuntimeError(f"图片处理失败，已中止发布：\n{details}")
+    if image_failures or video_failures:
+        failures = image_failures + video_failures
+        details = "\n".join(f"- {failure}" for failure in failures)
+        prefix = "媒体处理失败，已中止发布" if video_failures else "图片处理失败，已中止发布"
+        raise RuntimeError(f"{prefix}：\n{details}")
 
     body = process_admonitions(body)
     body = process_footnotes(body)
@@ -1570,7 +1756,12 @@ def publish_draft(token: str, article_data: dict, config: dict | None = None) ->
     return data
 
 
-def main(file_path: str) -> None:
+def choose_article_style(frontmatter: dict, config: dict, cli_style: str | None = None) -> str:
+    style_name = cli_style or frontmatter.get('style') or frontmatter.get('theme') or config.get('default_style') or DEFAULT_STYLE_THEME
+    return resolve_style_theme(style_name)['name']
+
+
+def main(file_path: str, style_name: str | None = None) -> None:
     print(f"开始处理文件: {file_path}")
     article_path = os.path.abspath(file_path)
     article_dir = os.path.dirname(article_path)
@@ -1591,8 +1782,13 @@ def main(file_path: str) -> None:
     print("正在处理 Markdown 内容...")
     try:
         frontmatter, processed_body = process_content_workflow(raw_content, token, article_dir)
-        html_content = md_to_html(processed_body)
+        selected_style = choose_article_style(frontmatter, config, style_name)
+        print(f"使用文章样式: {selected_style}")
+        html_content = md_to_html(processed_body, selected_style)
     except RuntimeError as e:
+        print(e)
+        return
+    except ValueError as e:
         print(e)
         return
 
@@ -1633,8 +1829,13 @@ def main(file_path: str) -> None:
 
 
 if __name__ == "__main__":
-    import sys
-    if len(sys.argv) > 1:
-        main(sys.argv[1])
+    import argparse
+    parser = argparse.ArgumentParser(description="发布 Obsidian Markdown 到微信公众号草稿箱")
+    parser.add_argument("file", nargs="?", help="Markdown 文件路径")
+    parser.add_argument("--style", "--theme", dest="style", help="文章样式主题，可用: classic, deepblue")
+    args = parser.parse_args()
+
+    if args.file:
+        main(args.file, args.style)
     else:
         print("请提供 Markdown 文件路径")

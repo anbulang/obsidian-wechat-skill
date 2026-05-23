@@ -1,6 +1,6 @@
 ---
 name: obsidian-wechat
-description: 将 Obsidian Markdown 文章转换为微信公众号适配的 HTML 格式，并支持一键发布到草稿箱。支持 Admonition 插件的 ad-* 代码块、标准 Callout、Mermaid 图表、代码高亮等特性。当用户要求转换文章到微信格式、生成公众号 HTML、发布到微信公众号、或提到微信公众号排版时使用。
+description: 将 Obsidian Markdown 文章转换为微信公众号适配的 HTML，并支持一键发布到草稿箱。支持 Admonition/Callout、Mermaid、代码高亮、链接脚注、图片上传、本地 MP4 视频素材上传、封面处理和样式主题。当用户要求转换文章到微信格式、生成公众号 HTML、发布到微信公众号草稿箱，或提到微信公众号排版时使用。
 ---
 
 # Obsidian to WeChat HTML Skill
@@ -131,7 +131,24 @@ graph TD
 </section>
 ```
 
-### 7. 其他元素转换
+### 7. 视频处理
+
+支持本地 MP4 视频嵌入，Obsidian 和标准 Markdown 写法都会自动上传为微信永久视频素材。
+
+**输入：**
+```markdown
+![[video.mp4|视频标题]]
+![视频标题](video.mp4)
+```
+
+**处理规则：**
+1. 仅支持本地 `.mp4` 文件，微信永久视频素材限制为 10MB
+2. 使用 `/cgi-bin/material/add_material?type=video` 上传，表单中带 `description`
+3. `|视频标题` 或 Markdown alt 文本作为视频标题
+4. `video_introduction` frontmatter 优先作为视频简介，否则使用 `digest`，再否则使用视频标题
+5. 正文输出微信富文本视频引用块，不走图片上传链路
+
+### 8. 其他元素转换
 
 | Markdown | HTML |
 |----------|------|
@@ -143,6 +160,33 @@ graph TD
 | `~~删除~~` | `<del>删除</del>` |
 | `- 列表` | `<ul><li>列表</li></ul>` |
 | `> 引用` | `<blockquote>引用</blockquote>` |
+
+## 样式主题
+
+发布脚本支持可配置文章样式，详见 `references/style-themes.md`。
+
+当前可用主题：
+
+| 主题 | 说明 |
+|------|------|
+| `classic` | 已保存的原始默认样式，红色强调、浅暖背景 |
+| `deepblue` | 参考指定公众号文章的深蓝商务样式 |
+
+选择方式：
+
+```yaml
+---
+style: deepblue
+---
+```
+
+也可以使用命令行参数：
+
+```bash
+./publish.sh your-article.md --style deepblue
+```
+
+优先级：命令行 `--style` > frontmatter `style` / `theme` > 配置文件 `default_style` > `classic`。
 
 ## 完整 HTML 包装
 
@@ -191,6 +235,7 @@ graph TD
 
 - `references/admonition-mapping.md` - Admonition 类型映射和 SVG 图标
 - `references/wechat-css-styles.md` - 完整 CSS 样式表
+- `references/style-themes.md` - 可配置样式主题说明
 - `references/mermaid-handling.md` - Mermaid 处理策略
 - `references/wechat-api.md` - 微信 API 调用指南
 - `config/wechat-credentials.local.md` - 凭证配置（用户本地文件）
