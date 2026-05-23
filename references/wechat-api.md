@@ -117,7 +117,7 @@ curl -s -X POST \
 
 ## 4. 上传视频（永久素材）
 
-正文中的本地 MP4 视频需要作为永久视频素材上传，获取 `media_id` 后再在文章 HTML 中引用。
+正文中的本地 MP4 视频可以作为永久视频素材上传，获取 `media_id`。注意：草稿接口不保证把素材库 `media_id` 自动渲染为文章播放器；如果需要草稿中直接显示播放器，优先使用腾讯视频链接并生成 `iframe.video_iframe`。
 
 ### 请求
 
@@ -142,6 +142,7 @@ curl -s -X POST \
 - 视频大小限制为 10MB
 - `description` 必须是 JSON 字符串，包含 `title` 和 `introduction`
 - Obsidian 写法 `![[video.mp4|视频标题]]` 会使用 `视频标题` 作为 title
+- 腾讯视频链接如 `https://v.qq.com/x/page/a0189rvrjbi.html` 会被转换为 `iframe.video_iframe`
 
 ---
 

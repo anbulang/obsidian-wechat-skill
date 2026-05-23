@@ -40,23 +40,31 @@ cp config/wechat-credentials.example.md config/wechat-credentials.local.md
 ./publish.sh path/to/article.md --style deepblue
 ```
 
-## 作为智能体技能安装
+## 作为Skill安装
 
 本仓库遵循智能体技能格式，`skills` 命令行工具会发现根目录的 `SKILL.md`。
 
-从 Git 仓库安装：
+1. 从 Git 仓库安装：
 
 ```bash
 npx skills add https://github.com/anbulang/obsidian-wechat-skill.git --skill obsidian-wechat
 npx skills add anbulang/obsidian-wechat-skill --skill obsidian-wechat
 ```
 
-安装到特定智能体：
+2. 如需安装到特定智能体：
 
 ```bash
 npx skills add anbulang/obsidian-wechat-skill --skill obsidian-wechat --agent codex
 npx skills add anbulang/obsidian-wechat-skill --skill obsidian-wechat --agent claude-code
 ```
+
+3. 配置微信公众号凭证。进入安装后的 skill 目录，复制示例配置：
+
+```bash
+cp config/wechat-credentials.example.md config/wechat-credentials.local.md
+```
+
+编辑 `config/wechat-credentials.local.md`，填入微信公众号 `appid` 和 `secret`。没有本地凭证时，skill 仍可用于转换 HTML，但不能发布到草稿箱。
 
 本地开发时列出可发现的技能：
 
@@ -90,17 +98,17 @@ style: "deepblue"
 
 ### 文章元数据字段
 
-| 字段 | 是否必填 | 说明 |
-| --- | --- | --- |
-| `title` | 否 | 文章标题；未设置时使用“未命名文章”。 |
-| `author` | 否 | 作者；默认来自 `default_author`。 |
-| `digest` | 否 | 摘要；也会作为视频简介的候选值。 |
-| `thumb_media_id` | 否 | 已上传的封面素材 ID，优先级最高。 |
-| `banner` / `cover` / `image` | 否 | 本地或 HTTPS 封面图。 |
-| `source_url` | 否 | “阅读原文”链接。 |
-| `style` / `theme` | 否 | `classic` 或 `deepblue`。 |
-| `video_introduction` | 否 | 视频素材简介；未设置时使用 `digest` 或视频标题。 |
-| `open_comment` | 否 | `0` 关闭评论，`1` 开启评论。 |
+| 字段                               | 是否必填 | 说明                                               |
+| ---------------------------------- | -------- | -------------------------------------------------- |
+| `title`                          | 否       | 文章标题；未设置时使用“未命名文章”。             |
+| `author`                         | 否       | 作者；默认来自 `default_author`。                |
+| `digest`                         | 否       | 摘要；也会作为视频简介的候选值。                   |
+| `thumb_media_id`                 | 否       | 已上传的封面素材 ID，优先级最高。                  |
+| `banner` / `cover` / `image` | 否       | 本地或 HTTPS 封面图。                              |
+| `source_url`                     | 否       | “阅读原文”链接。                                 |
+| `style` / `theme`              | 否       | `classic` 或 `deepblue`。                      |
+| `video_introduction`             | 否       | 视频素材简介；未设置时使用 `digest` 或视频标题。 |
+| `open_comment`                   | 否       | `0` 关闭评论，`1` 开启评论。                   |
 
 ### 图片与视频
 
@@ -117,6 +125,7 @@ style: "deepblue"
 ```markdown
 ![[demo.mp4|视频标题]]
 ![视频标题](demo.mp4)
+![腾讯视频](https://v.qq.com/x/page/a0189rvrjbi.html)
 ```
 
 视频限制：
@@ -125,6 +134,8 @@ style: "deepblue"
 - 微信永久视频素材限制为 10MB
 - 远程视频 URL 不会自动下载上传
 - `.mov`、`.webm` 等会被识别为视频，但会明确报错，避免误走图片上传
+- 本地 MP4 上传后会在正文中保留可见素材卡片和 `media_id`；微信草稿接口不保证把素材库 `media_id` 自动渲染为播放器
+- 如果要在草稿中自动显示播放器，推荐使用腾讯视频链接，脚本会转换为微信常见的 `video_iframe`
 
 ## 样式示例
 
@@ -219,16 +230,16 @@ cp config/wechat-credentials.example.md config/wechat-credentials.local.md
 
 核心字段：
 
-| 字段 | 是否必填 | 说明 |
-| --- | --- | --- |
-| `appid` | 是 | 微信公众号 AppID。 |
-| `secret` | 是 | 微信公众号 AppSecret。 |
-| `access_token` | 否 | 自动缓存，无需手填。 |
-| `token_expires` | 否 | 自动缓存，无需手填。 |
-| `default_author` | 否 | 默认作者。 |
-| `default_thumb_media_id` | 否 | 默认封面素材 ID。 |
-| `default_style` | 否 | 默认样式，`classic` 或 `deepblue`。 |
-| `ai_cover` | 否 | 可选 AI 自动封面配置，默认关闭。 |
+| 字段                       | 是否必填 | 说明                                    |
+| -------------------------- | -------- | --------------------------------------- |
+| `appid`                  | 是       | 微信公众号 AppID。                      |
+| `secret`                 | 是       | 微信公众号 AppSecret。                  |
+| `access_token`           | 否       | 自动缓存，无需手填。                    |
+| `token_expires`          | 否       | 自动缓存，无需手填。                    |
+| `default_author`         | 否       | 默认作者。                              |
+| `default_thumb_media_id` | 否       | 默认封面素材 ID。                       |
+| `default_style`          | 否       | 默认样式，`classic` 或 `deepblue`。 |
+| `ai_cover`               | 否       | 可选 AI 自动封面配置，默认关闭。        |
 
 微信公众号后台还需要配置当前公网 IP 白名单：
 
@@ -317,14 +328,14 @@ PY
 
 ## 常见问题
 
-| 现象 | 可能原因 | 解决方式 |
-| --- | --- | --- |
-| `40164` | 当前 IP 不在微信公众号白名单 | 在微信公众号后台加入当前公网 IP。 |
-| `40001` / `42001` | Token 无效或过期 | 脚本会自动刷新一次；若仍失败，检查 `appid` 和 `secret`。 |
-| 缺少封面 | 未配置 `thumb_media_id`、封面图、AI 封面或默认封面 | 配置 `default_thumb_media_id` 或添加 `banner`。 |
-| 图片上传失败 | 图片格式/大小不支持，或远程 URL 不安全 | 使用 JPG/PNG/GIF，控制大小，并使用公开 HTTPS URL。 |
-| 视频上传失败 | 不是本地 MP4，或超过 10MB | 转换并压缩为本地 `.mp4`。 |
-| 技能无法被发现 | `SKILL.md` 元数据缺失或无效 | 确保根目录 `SKILL.md` 包含 `name` 和 `description`。 |
+| 现象                  | 可能原因                                             | 解决方式                                                     |
+| --------------------- | ---------------------------------------------------- | ------------------------------------------------------------ |
+| `40164`             | 当前 IP 不在微信公众号白名单                         | 在微信公众号后台加入当前公网 IP。                            |
+| `40001` / `42001` | Token 无效或过期                                     | 脚本会自动刷新一次；若仍失败，检查 `appid` 和 `secret`。 |
+| 缺少封面              | 未配置 `thumb_media_id`、封面图、AI 封面或默认封面 | 配置 `default_thumb_media_id` 或添加 `banner`。          |
+| 图片上传失败          | 图片格式/大小不支持，或远程 URL 不安全               | 使用 JPG/PNG/GIF，控制大小，并使用公开 HTTPS URL。           |
+| 视频上传失败          | 不是本地 MP4，或超过 10MB                            | 转换并压缩为本地 `.mp4`。                                  |
+| 技能无法被发现        | `SKILL.md` 元数据缺失或无效                        | 确保根目录 `SKILL.md` 包含 `name` 和 `description`。   |
 
 ## 许可证
 

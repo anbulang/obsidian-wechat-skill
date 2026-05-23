@@ -133,12 +133,13 @@ graph TD
 
 ### 7. 视频处理
 
-支持本地 MP4 视频嵌入，Obsidian 和标准 Markdown 写法都会自动上传为微信永久视频素材。
+支持本地 MP4 和腾讯视频链接。Obsidian 和标准 Markdown 写法中的本地 MP4 会上传为微信永久视频素材；腾讯视频链接会转换为微信文章常见的 `video_iframe`。
 
 **输入：**
 ```markdown
 ![[video.mp4|视频标题]]
 ![视频标题](video.mp4)
+![腾讯视频](https://v.qq.com/x/page/a0189rvrjbi.html)
 ```
 
 **处理规则：**
@@ -146,7 +147,8 @@ graph TD
 2. 使用 `/cgi-bin/material/add_material?type=video` 上传，表单中带 `description`
 3. `|视频标题` 或 Markdown alt 文本作为视频标题
 4. `video_introduction` frontmatter 优先作为视频简介，否则使用 `digest`，再否则使用视频标题
-5. 正文输出微信富文本视频引用块，不走图片上传链路
+5. 本地 MP4 上传后输出可见素材卡片和 `media_id`，因为草稿接口不保证把素材库 `media_id` 自动渲染为播放器
+6. 腾讯视频链接会输出 `iframe.video_iframe`，适合在草稿里直接显示播放器
 
 ### 8. 其他元素转换
 

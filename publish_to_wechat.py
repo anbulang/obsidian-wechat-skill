@@ -439,6 +439,31 @@ def is_video_source(source: str) -> bool:
     return get_media_extension(source) in VIDEO_EXTENSIONS
 
 
+def extract_tencent_video_vid(source: str) -> str | None:
+    parsed = urlparse(source.strip())
+    host = parsed.netloc.lower()
+    if not (host == 'v.qq.com' or host.endswith('.v.qq.com')):
+        return None
+
+    query_vid = parsed.query and re.search(r'(?:^|&)vid=([A-Za-z0-9_-]+)(?:&|$)', parsed.query)
+    if query_vid:
+        return query_vid.group(1)
+
+    path_patterns = [
+        r'/x/page/([A-Za-z0-9_-]+)\.html',
+        r'/x/cover/[^/]+/([A-Za-z0-9_-]+)\.html',
+    ]
+    for pattern in path_patterns:
+        match = re.search(pattern, parsed.path)
+        if match:
+            return match.group(1)
+    return None
+
+
+def is_tencent_video_url(source: str) -> bool:
+    return bool(extract_tencent_video_vid(source))
+
+
 def resolve_video_source(video_path_or_url: str, article_dir: str) -> tuple[str | None, str | None]:
     source = unquote(video_path_or_url.strip())
     if not source:
@@ -483,11 +508,36 @@ def build_wechat_video_html(media_id: str, title: str, source: str) -> str:
     return f'''
 <section class="video-wrapper" style="text-align: center; margin: 20px 0;">
   <mpvideo class="video_iframe rich_pages js_editor_video" data-mediaid="{escaped_media_id}" data-title="{escaped_title}" data-source="{escaped_source}" style="display: block; width: 100%; min-height: 220px;"></mpvideo>
+  <section style="margin: 8px 0 0; padding: 10px 12px; border-left: 4px solid #db4c3f; background: #fff5f5; color: #666; font-size: 13px; line-height: 1.6; text-align: left;">
+    <strong style="color: #db4c3f;">视频已上传到素材库</strong><br />
+    <span>标题：{escaped_title}</span><br />
+    <span>素材 media_id：{escaped_media_id}</span><br />
+    <span>如果草稿中未自动显示播放器，请在微信编辑器中从素材库插入这个视频。</span>
+  </section>
+</section>'''
+
+
+def build_tencent_video_html(source: str, title: str) -> str:
+    vid = extract_tencent_video_vid(source)
+    if not vid:
+        raise ValueError(f"无法从腾讯视频链接中解析 vid: {source}")
+
+    escaped_title = html_lib.escape(title or "腾讯视频", quote=True)
+    player_url = f"https://v.qq.com/iframe/player.html?vid={vid}&width=670&height=376.875&auto=0"
+    escaped_player_url = html_lib.escape(player_url, quote=True)
+
+    return f'''
+<section class="video-wrapper" style="text-align: center; margin: 20px 0;">
+  <iframe class="video_iframe" data-vidtype="2" data-ratio="1.7777777777777777" data-w="670" data-title="{escaped_title}" data-src="{escaped_player_url}" src="{escaped_player_url}" allowfullscreen="" frameborder="0" scrolling="no" width="670" height="376.875" style="display: block; max-width: 100%; width: 100%; height: 376.875px; border: 0; overflow: hidden;"></iframe>
 </section>'''
 
 
 class WechatRequestError(RuntimeError):
     """HTTP/JSON 层错误，消息中不包含完整 token/secret。"""
+
+
+class WechatUploadError(RuntimeError):
+    """素材上传失败，消息可直接展示给用户。"""
 
 
 def _redact_value(value):
@@ -674,19 +724,17 @@ def upload_image(token: str, image_path_or_url: str) -> str | None:
 def upload_video_material(token: str, video_path: str, title: str, introduction: str) -> str | None:
     """上传本地 MP4 为微信永久视频素材，返回 media_id。"""
     if not os.path.exists(video_path):
-        print(f"本地视频不存在: {video_path}")
-        return None
+        raise WechatUploadError(f"本地视频不存在: {video_path}")
 
     ext = os.path.splitext(video_path)[1].lower()
     content_type = WECHAT_VIDEO_TYPES.get(ext)
     if not content_type:
-        print(f"微信视频素材仅支持 MP4: {video_path}")
-        return None
+        raise WechatUploadError(f"微信视频素材仅支持 MP4: {video_path}")
 
     file_size = os.path.getsize(video_path)
     if file_size > MAX_WECHAT_VIDEO_BYTES:
-        print(f"视频超过微信限制 10MB: {video_path}")
-        return None
+        size_mb = file_size / 1024 / 1024
+        raise WechatUploadError(f"视频超过微信限制 10MB: {video_path} ({size_mb:.2f}MB)")
 
     url = f"{WECHAT_API_BASE}/material/add_material?access_token={token}&type=video"
     description = {
@@ -696,16 +744,18 @@ def upload_video_material(token: str, video_path: str, title: str, introduction:
 
     try:
         with open(video_path, 'rb') as f:
-            files = {'media': (os.path.basename(video_path) or 'video.mp4', f, content_type)}
-            data = {'description': json.dumps(description, ensure_ascii=False)}
-            response = request_json("POST", url, files=files, data=data)
+            files = [
+                ('media', (os.path.basename(video_path) or 'video.mp4', f, content_type)),
+                ('description', (None, json.dumps(description, ensure_ascii=False))),
+            ]
+            response = request_json("POST", url, files=files)
         if 'media_id' not in response:
-            print(f"上传视频失败: {_safe_error_detail(response)}")
-            return None
+            raise WechatUploadError(f"上传视频失败: {_safe_error_detail(response)}")
         return response['media_id']
+    except WechatUploadError:
+        raise
     except Exception as e:
-        print(f"上传视频失败: {e}")
-        return None
+        raise WechatUploadError(f"上传视频失败: {e}") from e
 
 
 # ================= AI 封面功能 =================
@@ -1704,7 +1754,12 @@ def process_content_workflow(content: str, token: str, article_dir: str | None =
             print(f"  解析路径: {resolved_src}")
 
         introduction = frontmatter.get('video_introduction') or frontmatter.get('digest') or title
-        media_id = upload_video_material(token, resolved_src, title, introduction)
+        try:
+            media_id = upload_video_material(token, resolved_src, title, introduction)
+        except WechatUploadError as e:
+            video_failures.append(f"{src} - {e}")
+            return original_markup
+
         if not media_id:
             video_failures.append(f"{src} - 上传到微信失败")
             return original_markup
@@ -1713,12 +1768,16 @@ def process_content_workflow(content: str, token: str, article_dir: str | None =
 
     def replace_obsidian_img(m):
         src, alt = parse_obsidian_image_embed(m.group(1))
+        if is_tencent_video_url(src):
+            return build_tencent_video_html(src, alt)
         if is_video_source(src):
             return upload_body_video(src, alt, m.group(0))
         return upload_body_image(src, alt, m.group(0))
 
     def replace_markdown_img(m):
         alt, src = m.group(1), m.group(2).strip()
+        if is_tencent_video_url(src):
+            return build_tencent_video_html(src, alt)
         if is_video_source(src):
             return upload_body_video(src, alt, m.group(0))
         return upload_body_image(src, alt, m.group(0))
